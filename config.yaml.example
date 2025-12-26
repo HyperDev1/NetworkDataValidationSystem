@@ -1,0 +1,41 @@
+# Network Data Validation System Configuration
+
+# API Credentials
+adjust:
+  api_token: "YOUR_ADJUST_API_TOKEN"
+  app_token: "YOUR_ADJUST_APP_TOKEN"
+
+applovin:
+  api_key: "YOUR_APPLOVIN_API_KEY"
+  package_name: "YOUR_PACKAGE_NAME"
+
+# Add other networks as needed
+# ironsource:
+#   secret_key: "YOUR_SECRET_KEY"
+#   refresh_token: "YOUR_REFRESH_TOKEN"
+
+# Slack Configuration
+slack:
+  webhook_url: "YOUR_SLACK_WEBHOOK_URL"
+  channel: "#revenue-alerts"
+  
+# Validation Settings
+validation:
+  # Maximum allowed difference percentage (e.g., 5 means 5%)
+  threshold_percentage: 5.0
+  
+  # Metrics to compare
+  metrics:
+    - revenue
+    - impressions
+  
+  # Date range for comparison (in days)
+  date_range_days: 1
+
+# Scheduling Configuration
+scheduling:
+  # Run interval in hours
+  interval_hours: 6
+  
+  # Enable/disable scheduling
+  enabled: true
