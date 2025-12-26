@@ -38,25 +38,41 @@ class ApplovinFetcher(NetworkDataFetcher):
         'APPSFLYER': 'AppsFlyer',
     }
     
-    def __init__(self, api_key: str, package_name: str):
+    def __init__(self, api_key: str, applications: str):
         """
         Initialize Applovin fetcher.
         
         Args:
             api_key: Applovin API key
-            package_name: App package name
+            applications: Comma-separated app package names (android,ios)
         """
         self.api_key = api_key
-        self.package_name = package_name
+        self.applications = applications  # e.g. "com.Hyperlab.ClearAndShoot,id1670670715"
         self.base_url = "https://r.applovin.com/maxReport"
     
     def _detect_platform(self, row: Dict[str, Any]) -> str:
         """Detect platform (android/ios) from API row."""
-        platform_val = str(row.get('os', row.get('platform', row.get('os_name', '')))).lower()
+        platform_val = str(row.get('platform', row.get('os', ''))).lower()
+        
+        # Debug - print first few rows to see platform values
+        if not hasattr(self, '_debug_count'):
+            self._debug_count = 0
+        if self._debug_count < 5:
+            print(f"      [DEBUG] Row: platform={row.get('platform')}, application={row.get('application')}")
+            self._debug_count += 1
+        
         if 'android' in platform_val:
             return 'android'
         if 'ios' in platform_val or 'iphone' in platform_val or 'ipad' in platform_val:
             return 'ios'
+        
+        # Fallback: detect from application field
+        app = str(row.get('application', row.get('package_name', ''))).lower()
+        if app.startswith('id') and app[2:].isdigit():
+            return 'ios'
+        if 'ios' in app:
+            return 'ios'
+        
         return 'android'
     
     def _normalize_network_name(self, network: str) -> str:
@@ -143,14 +159,16 @@ class ApplovinFetcher(NetworkDataFetcher):
         Returns:
             Dictionary containing total data + network_breakdown for each mediation network
         """
-        # Try to fetch with network column for mediation breakdown
+        # Reset debug counter
+        self._debug_count = 0
+        
+        print(f"      [DEBUG] Fetching for applications: {self.applications}")
+        
+        # Columns must include platform to separate android/ios data
         column_variants = [
-            "day,package_name,network,ad_format,estimated_revenue,impressions,platform",
-            "day,package_name,network,ad_format,estimated_revenue,impressions,os",
-            "day,package_name,ad_format,estimated_revenue,impressions,platform",
-            "day,package_name,ad_format,estimated_revenue,impressions,os",
-            "day,package_name,estimated_revenue,impressions,platform",
-            "day,package_name,estimated_revenue,impressions,os",
+            "day,application,platform,network,ad_format,estimated_revenue,impressions",
+            "day,application,platform,ad_format,estimated_revenue,impressions",
+            "day,application,platform,estimated_revenue,impressions",
         ]
 
         data = None
@@ -164,13 +182,16 @@ class ApplovinFetcher(NetworkDataFetcher):
                 "end": end_date.strftime("%Y-%m-%d"),
                 "columns": cols,
                 "format": "json",
-                "filter_package_name": self.package_name
+                "package_name": "com.Hyperlab.ClearAndShoot",  # Comma-separated package names
+                "platform": "android,ios",
+                "report_timezone": "UTC"
             }
 
             try:
                 response = requests.get(self.base_url, params=params, timeout=30)
+                print(f"      [DEBUG] API URL: {response.url[:200]}...")
                 if response.status_code >= 400 and response.status_code < 500:
-                    last_exception = Exception(f"Applovin returned {response.status_code}: {response.text}")
+                    last_exception = Exception(f"Applovin returned {response.status_code}: {response.text[:200]}")
                     continue
                 response.raise_for_status()
                 data = response.json()
@@ -180,6 +201,7 @@ class ApplovinFetcher(NetworkDataFetcher):
                     continue
                 # Check if we got network data
                 has_network_data = 'network' in cols
+                print(f"      [DEBUG] Got {len(data.get('results', data.get('data', data.get('rows', []))))} rows")
                 break
             except requests.exceptions.RequestException as e:
                 last_exception = e

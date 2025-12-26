@@ -33,8 +33,8 @@ class ValidationService:
     def __init__(self, config: Config):
         """Initialize validation service."""
         self.config = config
-        self.applovin_fetcher = None
-        self.network_fetchers: List[NetworkDataFetcher] = []
+        self.applovin_fetcher = None  # Single fetcher for all platforms
+        self.network_fetchers = {}    # {'network_name': fetcher}
         self.validator = None
         self.notifier = None
         self.reporter = TableReporter()
@@ -43,41 +43,33 @@ class ValidationService:
     
     def _initialize_components(self):
         """Initialize fetchers, validator, and notifier based on configuration."""
-        # Initialize Applovin Max fetcher (baseline/reference)
+        # Initialize Applovin Max fetcher - single fetcher for all platforms
         applovin_config = self.config.get_applovin_config()
-        if applovin_config and applovin_config.get('api_key') and applovin_config.get('package_name'):
-            self.applovin_fetcher = ApplovinFetcher(
-                api_key=applovin_config['api_key'],
-                package_name=applovin_config['package_name']
-            )
-        
-        # Add other networks to compare against Applovin's breakdown
-        adjust_config = self.config.get_adjust_config()
-        if adjust_config and adjust_config.get('api_token') and adjust_config.get('app_token'):
-            use_mock = adjust_config.get('use_mock', False)
-            if use_mock:
-                self.network_fetchers.append(MockAdjustFetcher())
-            else:
-                self.network_fetchers.append(
-                    AdjustFetcher(
-                        api_token=adjust_config['api_token'],
-                        app_token=adjust_config['app_token']
-                    )
+        if applovin_config and applovin_config.get('api_key'):
+            api_key = applovin_config['api_key']
+            applications = applovin_config.get('applications', '')
+            
+            if applications:
+                self.applovin_fetcher = ApplovinFetcher(
+                    api_key=api_key,
+                    applications=applications
                 )
         
-        # Add Mintegral
+        # Add Mintegral - single fetcher returns both platforms
         mintegral_config = self.config.get_mintegral_config()
         if mintegral_config and mintegral_config.get('skey') and mintegral_config.get('secret'):
             use_mock = mintegral_config.get('use_mock', False)
+            skey = mintegral_config['skey']
+            secret = mintegral_config['secret']
+            app_ids = mintegral_config.get('app_ids', '')
+            
             if use_mock:
-                self.network_fetchers.append(MockMintegralFetcher())
+                self.network_fetchers['Mintegral'] = MockMintegralFetcher()
             else:
-                self.network_fetchers.append(
-                    MintegralFetcher(
-                        skey=mintegral_config['skey'],
-                        secret=mintegral_config['secret'],
-                        app_id=mintegral_config.get('app_id')
-                    )
+                self.network_fetchers['Mintegral'] = MintegralFetcher(
+                    skey=skey,
+                    secret=secret,
+                    app_id=app_ids if app_ids else None
                 )
         
         # Initialize validator
@@ -127,34 +119,37 @@ class ValidationService:
         """
         Run validation check comparing Applovin network breakdown vs each network's own API.
         """
-        print(f"[{datetime.now()}] Starting validation check...")
+        print(f"[{datetime.utcnow()}] Starting validation check (UTC)...")
         print("=" * 80)
         
-        # Calculate date range
+        # Calculate date range using UTC+0
         validation_config = self.config.get_validation_config()
         date_range_days = validation_config.get('date_range_days', 1)
-        end_date = datetime.now() - timedelta(days=1)
+        end_date = datetime.utcnow() - timedelta(days=1)
         start_date = end_date - timedelta(days=date_range_days - 1)
         
-        print(f"📅 Date range: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}")
+        print(f"📅 Date range (UTC): {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}")
         print("=" * 80)
         
-        # Fetch Applovin Max data (with network breakdown)
+        # Fetch Applovin Max data (single request returns both platforms)
         applovin_data = None
+        combined_network_breakdown = {}
+        
         if self.applovin_fetcher:
             try:
-                print(f"\n📊 Fetching data from Applovin Max (Reference)...")
+                print(f"\n📊 Fetching Applovin Max data...")
                 applovin_data = self.applovin_fetcher.fetch_data(start_date, end_date)
                 print(f"   Total: ${applovin_data['revenue']:,.2f} | {applovin_data['impressions']:,} imp | ${applovin_data['ecpm']:.2f} eCPM")
                 
-                # Show network breakdown
-                network_breakdown = applovin_data.get('network_breakdown', {})
-                if network_breakdown:
-                    print(f"\n   📈 Network Breakdown (as seen in Applovin Max):")
-                    for net_name, net_data in sorted(network_breakdown.items()):
-                        print(f"      {net_name:<15}: ${net_data['revenue']:>10,.2f} | {net_data['impressions']:>10,} imp | ${net_data['ecpm']:>6.2f} eCPM")
-                else:
-                    print("   ⚠️  No network breakdown available from Applovin")
+                # Show platform breakdown
+                for platform in ['android', 'ios']:
+                    plat_data = applovin_data.get('platform_data', {}).get(platform, {})
+                    if plat_data.get('revenue', 0) > 0 or plat_data.get('impressions', 0) > 0:
+                        print(f"      {platform.upper()}: ${plat_data.get('revenue', 0):,.2f} | {plat_data.get('impressions', 0):,} imp")
+                
+                # Get network breakdown - it already has platform_data for each network
+                combined_network_breakdown = applovin_data.get('network_breakdown', {})
+                
             except Exception as e:
                 print(f"   ❌ Error fetching Applovin data: {str(e)}")
                 return {'success': False, 'message': f'Failed to fetch Applovin data: {str(e)}'}
@@ -162,32 +157,58 @@ class ValidationService:
             print("❌ Applovin fetcher not configured")
             return {'success': False, 'message': 'Applovin fetcher not configured'}
         
-        # Fetch data from each network's own API
+        # Show combined network breakdown
+        if combined_network_breakdown:
+            print(f"\n   📈 Network Breakdown (as seen in Applovin Max):")
+            for net_name, net_data in sorted(combined_network_breakdown.items()):
+                # Recalculate eCPM
+                total_imp = net_data['impressions']
+                net_data['ecpm'] = (net_data['revenue'] / total_imp * 1000) if total_imp > 0 else 0
+                print(f"      {net_name:<18}: ${net_data['revenue']:>10,.2f} {net_data['impressions']:>12,} imp ${net_data['ecpm']:>6.2f} eCPM")
+        
+        # Fetch data from each network's own API for each platform
         print(f"\n{'=' * 80}")
         print("📊 Fetching data from individual network APIs...")
         print("=" * 80)
         
         network_own_data = {}
-        for fetcher in self.network_fetchers:
+        for network_name, fetcher in self.network_fetchers.items():
             try:
-                network_name = fetcher.get_network_name()
                 print(f"\n   🔄 Fetching from {network_name}...")
                 data = fetcher.fetch_data(start_date, end_date)
-                network_own_data[network_name] = data
-                print(f"      Total: ${data['revenue']:,.2f} | {data['impressions']:,} imp | ${data['ecpm']:.2f} eCPM")
+                
+                # Store the data - fetcher returns platform_data already
+                network_own_data[network_name] = {
+                    'platform_data': data.get('platform_data', {}),
+                    'revenue': data.get('revenue', 0),
+                    'impressions': data.get('impressions', 0),
+                    'ecpm': data.get('ecpm', 0),
+                    'ad_data': data.get('ad_data', {})
+                }
+                
+                print(f"      Total: ${data.get('revenue', 0):,.2f} {data.get('impressions', 0):,} imp ${data.get('ecpm', 0):.2f} eCPM")
+                
+                # Show platform breakdown
+                for plat, plat_data in data.get('platform_data', {}).items():
+                    print(f"      {plat.upper()}: ${plat_data.get('revenue', 0):,.2f} {plat_data.get('impressions', 0):,} imp")
+                    
             except Exception as e:
                 print(f"      ❌ Error: {str(e)}")
+            
+            # Calculate combined eCPM
+            total_imp = network_own_data[network_name]['impressions']
+            total_rev = network_own_data[network_name]['revenue']
+            network_own_data[network_name]['ecpm'] = (total_rev / total_imp * 1000) if total_imp > 0 else 0
         
         # Build comparison data for table display
         comparison_rows = []
-        network_breakdown = applovin_data.get('network_breakdown', {})
         
         print(f"\n{'=' * 80}")
         print("📊 COMPARISON: Applovin Max Data vs Network's Own API Data")
         print("=" * 80)
         
         for network_name, own_data in network_own_data.items():
-            applovin_network_data = self._find_applovin_network_data(network_breakdown, network_name)
+            applovin_network_data = self._find_applovin_network_data(combined_network_breakdown, network_name)
             
             if applovin_network_data:
                 comparison_rows.append({
