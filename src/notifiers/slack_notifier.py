@@ -90,10 +90,16 @@ class SlackNotifier:
                     diff = self._format_value(disc['difference'], disc['metric'])
                     diff_pct = disc['difference_percentage']
                     
+                    # Handle infinity percentage
+                    if diff_pct == float('inf'):
+                        diff_pct_str = "∞"
+                    else:
+                        diff_pct_str = f"{diff_pct}%"
+                    
                     details_text += f"• *{metric_name}*:\n"
                     details_text += f"  - {network1}: {val1}\n"
                     details_text += f"  - {network2}: {val2}\n"
-                    details_text += f"  - Difference: {diff} ({diff_pct}%)\n\n"
+                    details_text += f"  - Difference: {diff} ({diff_pct_str})\n\n"
             
             blocks.append({
                 "type": "section",

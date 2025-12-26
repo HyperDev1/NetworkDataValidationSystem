@@ -49,11 +49,15 @@ class DataValidator:
             if value1 == 0 and value2 == 0:
                 diff_percentage = 0.0
             elif value1 == 0:
-                diff_percentage = 100.0
+                # When baseline is 0, any non-zero value is considered a large discrepancy
+                diff_percentage = float('inf') if value2 != 0 else 0.0
             else:
                 diff_percentage = abs((value2 - value1) / value1) * 100
             
-            is_over_threshold = diff_percentage > self.threshold_percentage
+            # Check threshold (treat infinity as exceeding threshold)
+            is_over_threshold = (diff_percentage != 0.0 and 
+                                (diff_percentage == float('inf') or 
+                                 diff_percentage > self.threshold_percentage))
             
             if is_over_threshold:
                 results['has_discrepancy'] = True
@@ -63,7 +67,7 @@ class DataValidator:
                 'network1_value': value1,
                 'network2_value': value2,
                 'difference': value2 - value1,
-                'difference_percentage': round(diff_percentage, 2),
+                'difference_percentage': diff_percentage if diff_percentage != float('inf') else float('inf'),
                 'over_threshold': is_over_threshold
             })
         

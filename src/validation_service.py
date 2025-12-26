@@ -84,7 +84,9 @@ class ValidationService:
                 print(f"Fetching data from {fetcher.get_network_name()}...")
                 data = fetcher.fetch_data(start_date, end_date)
                 network_data.append(data)
-                print(f"  Revenue: ${data['revenue']:,.2f}, Impressions: {data['impressions']:,}")
+                # Ensure impressions is an integer for display
+                impressions = int(data['impressions']) if isinstance(data['impressions'], (int, float)) else data['impressions']
+                print(f"  Revenue: ${data['revenue']:,.2f}, Impressions: {impressions:,}")
             except Exception as e:
                 print(f"  Error fetching data from {fetcher.get_network_name()}: {str(e)}")
         
@@ -110,7 +112,11 @@ class ValidationService:
                     print(f"\n{comp['network1']} vs {comp['network2']}:")
                     for disc in comp['discrepancies']:
                         if disc['over_threshold']:
-                            print(f"  - {disc['metric']}: {disc['difference_percentage']}% difference")
+                            diff_pct = disc['difference_percentage']
+                            if diff_pct == float('inf'):
+                                print(f"  - {disc['metric']}: ∞% difference (baseline was 0)")
+                            else:
+                                print(f"  - {disc['metric']}: {diff_pct:.2f}% difference")
             
             # Send notification
             if self.notifier:

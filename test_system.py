@@ -41,9 +41,9 @@ def test_data_validator():
     for disc in result['discrepancies']:
         print(f"  - {disc['metric']}: {disc['difference_percentage']}% difference (threshold: {disc['over_threshold']})")
     
-    assert result['has_discrepancy'] == True, "Should detect revenue discrepancy"
-    assert result['discrepancies'][0]['over_threshold'] == True, "Revenue should exceed threshold"
-    assert result['discrepancies'][1]['over_threshold'] == False, "Impressions should not exceed threshold"
+    assert result['has_discrepancy'] is True, "Should detect revenue discrepancy"
+    assert result['discrepancies'][0]['over_threshold'] is True, "Revenue should exceed threshold"
+    assert result['discrepancies'][1]['over_threshold'] is False, "Impressions should not exceed threshold"
     
     print("✅ DataValidator test passed!\n")
 
@@ -123,15 +123,59 @@ def test_multiple_network_comparison():
     results = validator.compare_multiple_networks(networks, ['revenue', 'impressions'])
     
     assert len(results) == 2, "Should compare baseline with 2 other networks"
-    assert results[0]['has_discrepancy'] == False, "Network B should be within threshold"
-    assert results[1]['has_discrepancy'] == True, "Network C should exceed threshold"
+    assert results[0]['has_discrepancy'] is False, "Network B should be within threshold"
+    assert results[1]['has_discrepancy'] is True, "Network C should exceed threshold"
     
     has_any = validator.has_any_discrepancy(results)
-    assert has_any == True, "Should detect at least one discrepancy"
+    assert has_any is True, "Should detect at least one discrepancy"
     
     print(f"  Compared {len(networks)} networks")
     print(f"  Found discrepancies: {has_any}")
     print("✅ Multiple network comparison test passed!\n")
+
+
+def test_zero_baseline_handling():
+    """Test handling of zero baseline values."""
+    print("Testing zero baseline handling...")
+    
+    validator = DataValidator(threshold_percentage=5.0)
+    
+    # Test data with zero baseline
+    data1 = {
+        'revenue': 0.0,  # Zero baseline
+        'impressions': 0,
+        'network': 'Network A',
+        'date_range': {'start': '2025-12-25', 'end': '2025-12-25'}
+    }
+    
+    data2 = {
+        'revenue': 100.0,  # Non-zero value
+        'impressions': 1000,
+        'network': 'Network B',
+        'date_range': {'start': '2025-12-25', 'end': '2025-12-25'}
+    }
+    
+    # Compare
+    result = validator.compare_metrics(data1, data2, ['revenue', 'impressions'])
+    
+    # Should detect discrepancy when baseline is 0 and comparison is non-zero
+    assert result['has_discrepancy'] is True, "Should detect discrepancy with zero baseline"
+    assert result['discrepancies'][0]['difference_percentage'] == float('inf'), "Should be infinity for zero baseline"
+    assert result['discrepancies'][0]['over_threshold'] is True, "Should exceed threshold"
+    
+    # Test case where both are zero (no discrepancy)
+    data3 = {
+        'revenue': 0.0,
+        'impressions': 0,
+        'network': 'Network C',
+        'date_range': {'start': '2025-12-25', 'end': '2025-12-25'}
+    }
+    
+    result2 = validator.compare_metrics(data1, data3, ['revenue', 'impressions'])
+    assert result2['has_discrepancy'] is False, "Should not detect discrepancy when both are zero"
+    
+    print("  Zero baseline handling works correctly")
+    print("✅ Zero baseline handling test passed!\n")
 
 
 if __name__ == "__main__":
@@ -143,6 +187,7 @@ if __name__ == "__main__":
         test_data_validator()
         test_slack_message_building()
         test_multiple_network_comparison()
+        test_zero_baseline_handling()
         
         print("=" * 60)
         print("✅ All tests passed!")
