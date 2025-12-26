@@ -98,6 +98,12 @@ class MintegralFetcher(NetworkDataFetcher):
                 'rewarded': {'revenue': 0.0, 'impressions': 0, 'ecpm': 0.0}
             }
             
+            # Platform buckets
+            platform_data = {
+                'android': {'ad_data': {k: {'revenue':0.0,'impressions':0,'ecpm':0.0} for k in ad_data}, 'revenue':0.0,'impressions':0,'ecpm':0.0},
+                'ios': {'ad_data': {k: {'revenue':0.0,'impressions':0,'ecpm':0.0} for k in ad_data}, 'revenue':0.0,'impressions':0,'ecpm':0.0}
+            }
+            
             # Total values
             total_revenue = 0.0
             total_impressions = 0
@@ -108,6 +114,12 @@ class MintegralFetcher(NetworkDataFetcher):
                 revenue = float(row.get('revenue', row.get('est_revenue', 0)))
                 impressions = int(row.get('impression', row.get('impressions', 0)))
                 ad_type_id = row.get('ad_type', 0)
+                # detect platform if available
+                plat_val = str(row.get('os', row.get('platform', ''))).lower()
+                if 'ios' in plat_val or 'iphone' in plat_val or 'ipad' in plat_val:
+                    platform = 'ios'
+                else:
+                    platform = 'android'
                 
                 total_revenue += revenue
                 total_impressions += impressions
@@ -116,6 +128,13 @@ class MintegralFetcher(NetworkDataFetcher):
                 ad_category = self.AD_TYPE_MAP.get(ad_type_id, 'banner')
                 ad_data[ad_category]['revenue'] += revenue
                 ad_data[ad_category]['impressions'] += impressions
+                
+                # accumulate per-platform
+                platform_data.setdefault(platform, {'ad_data': {k: {'revenue':0.0,'impressions':0,'ecpm':0.0} for k in ad_data}, 'revenue':0.0,'impressions':0,'ecpm':0.0})
+                platform_data[platform]['ad_data'][ad_category]['revenue'] += revenue
+                platform_data[platform]['ad_data'][ad_category]['impressions'] += impressions
+                platform_data[platform]['revenue'] += revenue
+                platform_data[platform]['impressions'] += impressions
             
             # Calculate eCPM for each ad type
             for key in ad_data:
@@ -123,6 +142,17 @@ class MintegralFetcher(NetworkDataFetcher):
                 rev = ad_data[key]['revenue']
                 ad_data[key]['ecpm'] = round((rev / imp * 1000) if imp > 0 else 0.0, 2)
                 ad_data[key]['revenue'] = round(rev, 2)
+            
+            # Calculate per-platform eCPM
+            for plat in platform_data:
+                imp = platform_data[plat]['impressions']
+                rev = platform_data[plat]['revenue']
+                platform_data[plat]['ecpm'] = round((rev / imp * 1000) if imp > 0 else 0.0, 2)
+                for k in platform_data[plat]['ad_data']:
+                    aimp = platform_data[plat]['ad_data'][k]['impressions']
+                    arev = platform_data[plat]['ad_data'][k]['revenue']
+                    platform_data[plat]['ad_data'][k]['ecpm'] = round((arev / aimp * 1000) if aimp > 0 else 0.0, 2)
+                    platform_data[plat]['ad_data'][k]['revenue'] = round(arev, 2)
             
             # Calculate total eCPM
             total_ecpm = (total_revenue / total_impressions * 1000) if total_impressions > 0 else 0.0
@@ -132,6 +162,7 @@ class MintegralFetcher(NetworkDataFetcher):
                 'impressions': total_impressions,
                 'ecpm': round(total_ecpm, 2),
                 'ad_data': ad_data,
+                'platform_data': platform_data,
                 'network': self.get_network_name(),
                 'date_range': {
                     'start': start_date.strftime("%Y-%m-%d"),

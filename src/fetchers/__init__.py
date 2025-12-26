@@ -6,5 +6,6 @@ from .adjust_fetcher import AdjustFetcher
 from .applovin_fetcher import ApplovinFetcher
 from .mock_adjust_fetcher import MockAdjustFetcher
 from .mintegral_fetcher import MintegralFetcher
+from .mock_mintegral_fetcher import MockMintegralFetcher
 
-__all__ = ['NetworkDataFetcher', 'AdjustFetcher', 'ApplovinFetcher', 'MockAdjustFetcher', 'MintegralFetcher']
+__all__ = ['NetworkDataFetcher', 'AdjustFetcher', 'ApplovinFetcher', 'MockAdjustFetcher', 'MintegralFetcher', 'MockMintegralFetcher']

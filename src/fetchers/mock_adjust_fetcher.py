@@ -73,11 +73,63 @@ class MockAdjustFetcher(NetworkDataFetcher):
             }
         }
         
+        # Platform-specific data (simulate ~60% Android, ~40% iOS)
+        android_ratio = 0.6
+        ios_ratio = 0.4
+        
+        platform_data = {
+            'android': {
+                'revenue': round(total_revenue * android_ratio, 2),
+                'impressions': int(total_impressions * android_ratio),
+                'ecpm': round(total_ecpm, 2),
+                'ad_data': {
+                    'banner': {
+                        'revenue': round(banner_revenue * android_ratio, 2),
+                        'impressions': int(banner_impressions * android_ratio),
+                        'ecpm': round(banner_ecpm, 2)
+                    },
+                    'interstitial': {
+                        'revenue': round(inter_revenue * android_ratio, 2),
+                        'impressions': int(inter_impressions * android_ratio),
+                        'ecpm': round(inter_ecpm, 2)
+                    },
+                    'rewarded': {
+                        'revenue': round(rewarded_revenue * android_ratio, 2),
+                        'impressions': int(rewarded_impressions * android_ratio),
+                        'ecpm': round(rewarded_ecpm, 2)
+                    }
+                }
+            },
+            'ios': {
+                'revenue': round(total_revenue * ios_ratio, 2),
+                'impressions': int(total_impressions * ios_ratio),
+                'ecpm': round(total_ecpm, 2),
+                'ad_data': {
+                    'banner': {
+                        'revenue': round(banner_revenue * ios_ratio, 2),
+                        'impressions': int(banner_impressions * ios_ratio),
+                        'ecpm': round(banner_ecpm, 2)
+                    },
+                    'interstitial': {
+                        'revenue': round(inter_revenue * ios_ratio, 2),
+                        'impressions': int(inter_impressions * ios_ratio),
+                        'ecpm': round(inter_ecpm, 2)
+                    },
+                    'rewarded': {
+                        'revenue': round(rewarded_revenue * ios_ratio, 2),
+                        'impressions': int(rewarded_impressions * ios_ratio),
+                        'ecpm': round(rewarded_ecpm, 2)
+                    }
+                }
+            }
+        }
+        
         return {
             'revenue': round(total_revenue, 2),
             'impressions': total_impressions,
             'ecpm': round(total_ecpm, 2),
             'ad_data': ad_data,
+            'platform_data': platform_data,
             'network': self.get_network_name(),
             'date_range': {
                 'start': start_date.strftime("%Y-%m-%d"),
