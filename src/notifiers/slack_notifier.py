@@ -45,7 +45,8 @@ class SlackNotifier:
     
     def _build_message(self, discrepancies: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
-        Build Slack message payload.
+        Build Slack message payload with table format using markdown code block.
+        Shows data breakdown by ad type (Banner, Interstitial, Rewarded).
         
         Args:
             discrepancies: List of comparisons with discrepancies
@@ -74,39 +75,89 @@ class SlackNotifier:
             }
         ]
         
-        # Add details for each discrepancy
+        # Build table for each comparison
         for comp in discrepancies:
             network1 = comp['network1']
             network2 = comp['network2']
             
-            # Build discrepancy details
-            details_text = f"*Comparing:* {network1} vs {network2}\n\n"
+            # Get network data with ad_data breakdown
+            data1 = comp.get('network1_data', {})
+            data2 = comp.get('network2_data', {})
             
-            for disc in comp['discrepancies']:
-                if disc['over_threshold']:
-                    metric_name = disc['metric'].capitalize()
-                    val1 = self._format_value(disc['network1_value'], disc['metric'])
-                    val2 = self._format_value(disc['network2_value'], disc['metric'])
-                    diff = self._format_value(disc['difference'], disc['metric'])
-                    diff_pct = disc['difference_percentage']
-                    
-                    # Handle infinity percentage
-                    if diff_pct == float('inf'):
-                        diff_pct_str = "∞"
-                    else:
-                        diff_pct_str = f"{diff_pct}%"
-                    
-                    details_text += f"• *{metric_name}*:\n"
-                    details_text += f"  - {network1}: {val1}\n"
-                    details_text += f"  - {network2}: {val2}\n"
-                    details_text += f"  - Difference: {diff} ({diff_pct_str})\n\n"
+            ad_data1 = data1.get('ad_data', {})
+            ad_data2 = data2.get('ad_data', {})
+            
+            # Ad type labels
+            ad_types = [
+                ('banner', 'Banner'),
+                ('interstitial', 'Interstitial'),
+                ('rewarded', 'Rewarded')
+            ]
+            
+            # Build table header
+            table = f"```\n"
+            table += f"{'Ad Type':<14} {'Revenue':>12} {'Impr.':>10} {'eCPM':>8} │ {'Revenue':>12} {'Impr.':>10} {'eCPM':>8}\n"
+            table += f"{'':14} {network1:>32} │ {network2:>32}\n"
+            table += f"{'-'*14} {'-'*12} {'-'*10} {'-'*8} + {'-'*12} {'-'*10} {'-'*8}\n"
+            
+            # Add rows for each ad type
+            for ad_key, ad_label in ad_types:
+                # Get data for each network
+                ad1 = ad_data1.get(ad_key, {'revenue': 0, 'impressions': 0, 'ecpm': 0})
+                ad2 = ad_data2.get(ad_key, {'revenue': 0, 'impressions': 0, 'ecpm': 0})
+                
+                rev1 = f"${ad1['revenue']:,.2f}"
+                imp1 = f"{int(ad1['impressions']):,}"
+                ecpm1 = f"${ad1['ecpm']:.2f}"
+                
+                rev2 = f"${ad2['revenue']:,.2f}"
+                imp2 = f"{int(ad2['impressions']):,}"
+                ecpm2 = f"${ad2['ecpm']:.2f}"
+                
+                table += f"{ad_label:<14} {rev1:>12} {imp1:>10} {ecpm1:>8} │ {rev2:>12} {imp2:>10} {ecpm2:>8}\n"
+            
+            # Add separator and totals
+            table += f"{'-'*14} {'-'*12} {'-'*10} {'-'*8} + {'-'*12} {'-'*10} {'-'*8}\n"
+            
+            # Total row
+            total_rev1 = f"${data1.get('revenue', 0):,.2f}"
+            total_imp1 = f"{int(data1.get('impressions', 0)):,}"
+            total_ecpm1 = f"${data1.get('ecpm', 0):.2f}"
+            
+            total_rev2 = f"${data2.get('revenue', 0):,.2f}"
+            total_imp2 = f"{int(data2.get('impressions', 0)):,}"
+            total_ecpm2 = f"${data2.get('ecpm', 0):.2f}"
+            
+            table += f"{'TOTAL':<14} {total_rev1:>12} {total_imp1:>10} {total_ecpm1:>8} │ {total_rev2:>12} {total_imp2:>10} {total_ecpm2:>8}\n"
+            table += f"```"
             
             blocks.append({
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": details_text
+                    "text": f"*{network1} vs {network2}*\n{table}"
                 }
+            })
+            
+            # Add difference summary
+            diff_text = "*Farklar:* "
+            for disc in comp['discrepancies']:
+                if disc['over_threshold']:
+                    metric = disc['metric'].upper()
+                    diff_pct = disc['difference_percentage']
+                    if diff_pct == float('inf'):
+                        diff_text += f"`{metric}: ∞%` "
+                    else:
+                        diff_text += f"`{metric}: {diff_pct:.1f}%` "
+            
+            blocks.append({
+                "type": "context",
+                "elements": [
+                    {
+                        "type": "mrkdwn",
+                        "text": diff_text
+                    }
+                ]
             })
             
             blocks.append({
@@ -135,6 +186,8 @@ class SlackNotifier:
         """
         if metric == 'revenue':
             return f"${value:,.2f}"
+        elif metric == 'ecpm':
+            return f"${value:.2f}"
         else:
             return f"{int(value):,}"
     

@@ -60,6 +60,10 @@ class Config:
         """Get Applovin API configuration."""
         return self.config.get('applovin', {})
     
+    def get_mintegral_config(self) -> Dict[str, str]:
+        """Get Mintegral API configuration."""
+        return self.config.get('mintegral', {})
+    
     def get_slack_config(self) -> Dict[str, str]:
         """Get Slack configuration."""
         return self.config.get('slack', {})

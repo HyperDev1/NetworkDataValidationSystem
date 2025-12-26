@@ -9,6 +9,11 @@ applovin:
   api_key: "YOUR_APPLOVIN_API_KEY"
   package_name: "YOUR_PACKAGE_NAME"
 
+mintegral:
+  skey: "YOUR_MINTEGRAL_SKEY"
+  secret: "YOUR_MINTEGRAL_SECRET"
+  app_id: ""  # Optional: Leave empty to get all apps
+
 # Add other networks as needed
 # ironsource:
 #   secret_key: "YOUR_SECRET_KEY"
@@ -28,6 +33,7 @@ validation:
   metrics:
     - revenue
     - impressions
+    - ecpm
   
   # Date range for comparison (in days)
   date_range_days: 1

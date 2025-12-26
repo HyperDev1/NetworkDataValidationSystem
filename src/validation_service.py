@@ -4,7 +4,7 @@ Main validation service orchestrating data fetching, validation, and notificatio
 from datetime import datetime, timedelta
 from typing import List, Dict, Any
 from src.config import Config
-from src.fetchers import AdjustFetcher, ApplovinFetcher, NetworkDataFetcher
+from src.fetchers import AdjustFetcher, ApplovinFetcher, MockAdjustFetcher, MintegralFetcher, NetworkDataFetcher
 from src.validators import DataValidator
 from src.notifiers import SlackNotifier
 
@@ -28,22 +28,39 @@ class ValidationService:
     
     def _initialize_components(self):
         """Initialize fetchers, validator, and notifier based on configuration."""
-        # Initialize fetchers
-        adjust_config = self.config.get_adjust_config()
-        if adjust_config and adjust_config.get('api_token') and adjust_config.get('app_token'):
-            self.fetchers.append(
-                AdjustFetcher(
-                    api_token=adjust_config['api_token'],
-                    app_token=adjust_config['app_token']
-                )
-            )
-        
+        # Initialize fetchers - Applovin Max is the baseline (first)
         applovin_config = self.config.get_applovin_config()
         if applovin_config and applovin_config.get('api_key') and applovin_config.get('package_name'):
             self.fetchers.append(
                 ApplovinFetcher(
                     api_key=applovin_config['api_key'],
                     package_name=applovin_config['package_name']
+                )
+            )
+        
+        # Add other networks to compare against Applovin Max
+        adjust_config = self.config.get_adjust_config()
+        if adjust_config and adjust_config.get('api_token') and adjust_config.get('app_token'):
+            # Check if mock mode is enabled
+            use_mock = adjust_config.get('use_mock', False)
+            if use_mock:
+                self.fetchers.append(MockAdjustFetcher())
+            else:
+                self.fetchers.append(
+                    AdjustFetcher(
+                        api_token=adjust_config['api_token'],
+                        app_token=adjust_config['app_token']
+                    )
+                )
+        
+        # Add Mintegral
+        mintegral_config = self.config.get_mintegral_config()
+        if mintegral_config and mintegral_config.get('skey') and mintegral_config.get('secret'):
+            self.fetchers.append(
+                MintegralFetcher(
+                    skey=mintegral_config['skey'],
+                    secret=mintegral_config['secret'],
+                    app_id=mintegral_config.get('app_id')
                 )
             )
         
@@ -86,20 +103,47 @@ class ValidationService:
                 network_data.append(data)
                 # Ensure impressions is an integer for display
                 impressions = int(data['impressions']) if isinstance(data['impressions'], (int, float)) else data['impressions']
-                print(f"  Revenue: ${data['revenue']:,.2f}, Impressions: {impressions:,}")
+                ecpm = data.get('ecpm', 0.0)
+                print(f"  Total: Revenue: ${data['revenue']:,.2f}, Impressions: {impressions:,}, eCPM: ${ecpm:.2f}")
+                
+                # Show ad type breakdown if available
+                ad_data = data.get('ad_data', {})
+                if ad_data:
+                    for ad_type, ad_info in ad_data.items():
+                        ad_rev = ad_info.get('revenue', 0)
+                        ad_imp = ad_info.get('impressions', 0)
+                        ad_ecpm = ad_info.get('ecpm', 0)
+                        print(f"    {ad_type.capitalize():<12}: ${ad_rev:>10,.2f} | {ad_imp:>10,} | ${ad_ecpm:>6.2f}")
             except Exception as e:
                 print(f"  Error fetching data from {fetcher.get_network_name()}: {str(e)}")
         
-        if len(network_data) < 2:
-            print("Insufficient data: Need at least 2 networks to compare")
+        if len(network_data) < 1:
+            print("Insufficient data: Need at least 1 network")
             return {
                 'success': False,
-                'message': 'Insufficient data to compare (need at least 2 networks)'
+                'message': 'Insufficient data - no networks returned data'
+            }
+        
+        if len(network_data) < 2:
+            print("⚠️  Only 1 network available - cannot compare")
+            print("Showing network data for monitoring:")
+            for data in network_data:
+                print(f"\n{data['network']}:")
+                print(f"  Revenue: ${data['revenue']:,.2f}")
+                print(f"  Impressions: {int(data['impressions']):,}")
+                print(f"  eCPM: ${data.get('ecpm', 0.0):.2f}")
+            
+            return {
+                'success': True,
+                'has_discrepancy': False,
+                'message': 'Single network monitoring mode',
+                'network_data': network_data,
+                'timestamp': datetime.now().isoformat()
             }
         
         # Compare data
         print("\nComparing network data...")
-        metrics = validation_config.get('metrics', ['revenue', 'impressions'])
+        metrics = validation_config.get('metrics', ['revenue', 'impressions', 'ecpm'])
         comparisons = self.validator.compare_multiple_networks(network_data, metrics)
         
         # Check for discrepancies

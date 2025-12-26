@@ -20,7 +20,7 @@ class DataValidator:
         self, 
         data1: Dict[str, Any], 
         data2: Dict[str, Any],
-        metrics: List[str] = ['revenue', 'impressions']
+        metrics: List[str] = ['revenue', 'impressions', 'ecpm']
     ) -> Dict[str, Any]:
         """
         Compare metrics between two network data sets.
@@ -36,6 +36,8 @@ class DataValidator:
         results = {
             'network1': data1['network'],
             'network2': data2['network'],
+            'network1_data': data1,  # Include full data for ad_data access
+            'network2_data': data2,  # Include full data for ad_data access
             'date_range': data1['date_range'],
             'has_discrepancy': False,
             'discrepancies': []
@@ -76,7 +78,7 @@ class DataValidator:
     def compare_multiple_networks(
         self,
         network_data: List[Dict[str, Any]],
-        metrics: List[str] = ['revenue', 'impressions']
+        metrics: List[str] = ['revenue', 'impressions', 'ecpm']
     ) -> List[Dict[str, Any]]:
         """
         Compare metrics across multiple networks.
