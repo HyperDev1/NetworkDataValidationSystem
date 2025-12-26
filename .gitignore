@@ -40,3 +40,6 @@ logs/
 # OS
 .DS_Store
 Thumbs.db
+
+# Tests (optional - uncomment if you don't want to commit tests)
+# test_system.py

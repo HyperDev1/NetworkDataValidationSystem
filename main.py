@@ -32,6 +32,15 @@ def main():
     print("Network Data Validation System")
     print("=" * 60)
     
+    # Check command line arguments first
+    if len(sys.argv) > 1 and sys.argv[1] == '--help':
+        print("\nUsage:")
+        print("  python main.py              - Run with scheduling (continuous)")
+        print("  python main.py --once       - Run validation once and exit")
+        print("  python main.py --test-slack - Test Slack integration")
+        print("  python main.py --help       - Show this help message")
+        sys.exit(0)
+    
     # Load configuration
     try:
         config = Config()
@@ -55,13 +64,6 @@ def main():
         elif sys.argv[1] == '--once':
             # Run once and exit
             run_validation_check(service)
-            sys.exit(0)
-        elif sys.argv[1] == '--help':
-            print("\nUsage:")
-            print("  python main.py              - Run with scheduling (continuous)")
-            print("  python main.py --once       - Run validation once and exit")
-            print("  python main.py --test-slack - Test Slack integration")
-            print("  python main.py --help       - Show this help message")
             sys.exit(0)
     
     # Get scheduling configuration
