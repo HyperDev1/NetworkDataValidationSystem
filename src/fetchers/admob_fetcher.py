@@ -1,15 +1,18 @@
 ﻿"""
 Google AdMob data fetcher implementation.
-Uses AdMob API v1 for fetching monetization data.
+Uses AdMob API v1 for fetching monetization data with OAuth 2.0.
 API Docs: https://developers.google.com/admob/api/v1/reference/rest
 """
 import os
+import json
 from datetime import datetime
 from typing import Dict, Any, List, Optional
 from .base_fetcher import NetworkDataFetcher
 
 try:
-    from google.oauth2 import service_account
+    from google.oauth2.credentials import Credentials
+    from google.auth.transport.requests import Request
+    from google_auth_oauthlib.flow import InstalledAppFlow
     from googleapiclient.discovery import build
     from googleapiclient.errors import HttpError
     GOOGLE_API_AVAILABLE = True
@@ -18,7 +21,7 @@ except ImportError:
 
 
 class AdmobFetcher(NetworkDataFetcher):
-    """Fetcher for Google AdMob monetization data."""
+    """Fetcher for Google AdMob monetization data using OAuth 2.0."""
     
     # AdMob API scopes
     SCOPES = ['https://www.googleapis.com/auth/admob.readonly']
@@ -41,25 +44,28 @@ class AdmobFetcher(NetworkDataFetcher):
     
     def __init__(
         self,
-        service_account_json_path: str,
+        oauth_credentials_path: str,
         publisher_id: str,
-        app_ids: Optional[str] = None
+        app_ids: Optional[str] = None,
+        token_path: str = "credentials/admob_token.json"
     ):
         """
-        Initialize AdMob fetcher.
+        Initialize AdMob fetcher with OAuth 2.0.
         
         Args:
-            service_account_json_path: Path to Google Service Account JSON key file
+            oauth_credentials_path: Path to OAuth 2.0 client credentials JSON file
             publisher_id: AdMob Publisher ID (format: pub-XXXXXXXXXXXXXXXX)
             app_ids: Optional comma-separated AdMob app IDs to filter
+            token_path: Path to store/load OAuth token
         """
         if not GOOGLE_API_AVAILABLE:
             raise ImportError(
                 "Google API libraries not installed. "
-                "Please install: pip install google-auth google-api-python-client"
+                "Please install: pip install google-auth google-auth-oauthlib google-api-python-client"
             )
         
-        self.service_account_json_path = service_account_json_path
+        self.oauth_credentials_path = oauth_credentials_path
+        self.token_path = token_path
         # Normalize publisher_id - remove 'pub-' prefix if present for account name
         self.publisher_id = publisher_id.replace('pub-', '') if publisher_id.startswith('pub-') else publisher_id
         self.app_ids = [a.strip() for a in app_ids.split(',') if a.strip()] if app_ids else []
@@ -67,18 +73,66 @@ class AdmobFetcher(NetworkDataFetcher):
         self.account_name = None  # Will be set during first fetch
     
     def _build_service(self):
-        """Build AdMob API service with authentication."""
-        if not os.path.exists(self.service_account_json_path):
-            raise FileNotFoundError(
-                f"Service account JSON file not found: {self.service_account_json_path}"
-            )
+        """Build AdMob API service with OAuth 2.0 authentication."""
+        creds = None
         
-        credentials = service_account.Credentials.from_service_account_file(
-            self.service_account_json_path,
-            scopes=self.SCOPES
-        )
+        # Check if we have a saved token
+        if os.path.exists(self.token_path):
+            try:
+                creds = Credentials.from_authorized_user_file(self.token_path, self.SCOPES)
+                print(f"      [INFO] Loaded existing OAuth token from {self.token_path}")
+            except Exception as e:
+                print(f"      [WARN] Failed to load token: {e}")
+                creds = None
         
-        return build('admob', 'v1', credentials=credentials)
+        # If no valid credentials, need to authenticate
+        if not creds or not creds.valid:
+            if creds and creds.expired and creds.refresh_token:
+                try:
+                    print("      [INFO] Refreshing expired OAuth token...")
+                    creds.refresh(Request())
+                    print("      [OK] Token refreshed successfully")
+                except Exception as e:
+                    print(f"      [WARN] Token refresh failed: {e}")
+                    creds = None
+            
+            if not creds:
+                # Need to do OAuth flow
+                if not os.path.exists(self.oauth_credentials_path):
+                    raise FileNotFoundError(
+                        f"OAuth credentials file not found: {self.oauth_credentials_path}\n"
+                        "Please download OAuth 2.0 Client ID credentials from Google Cloud Console."
+                    )
+                
+                print("      [INFO] Starting OAuth authorization flow...")
+                print("      [INFO] A browser window will open for authorization.")
+                
+                flow = InstalledAppFlow.from_client_secrets_file(
+                    self.oauth_credentials_path,
+                    self.SCOPES
+                )
+                creds = flow.run_local_server(port=8080)
+                print("      [OK] OAuth authorization completed")
+        
+        # Save the credentials for next run
+        if creds:
+            self._save_token(creds)
+        
+        return build('admob', 'v1', credentials=creds)
+    
+    def _save_token(self, creds: Credentials):
+        """Save OAuth token to file for future use."""
+        try:
+            # Ensure directory exists
+            token_dir = os.path.dirname(self.token_path)
+            if token_dir and not os.path.exists(token_dir):
+                os.makedirs(token_dir)
+            
+            with open(self.token_path, 'w') as token_file:
+                token_file.write(creds.to_json())
+            print(f"      [OK] OAuth token saved to {self.token_path}")
+        except Exception as e:
+            print(f"      [WARN] Failed to save token: {e}")
     
     def _normalize_platform(self, platform: str) -> str:
         """Normalize platform name to standard format."""

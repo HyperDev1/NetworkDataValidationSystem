@@ -1,6 +1,6 @@
 ﻿"""
 AdMob Data Fetcher Test Script.
-Tests the AdMob API integration.
+Tests the AdMob API integration using OAuth 2.0.
 """
 import sys
 import io
@@ -15,7 +15,7 @@ sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='repla
 def main():
     """Test AdMob data fetching."""
     print("=" * 60)
-    print("AdMob Data Fetcher Test")
+    print("AdMob Data Fetcher Test (OAuth 2.0)")
     print("=" * 60)
     
     # Load configuration
@@ -35,7 +35,8 @@ def main():
         return
     
     print(f"\n[INFO] AdMob Configuration:")
-    print(f"   Service Account: {admob_config.get('service_account_json_path')}")
+    print(f"   OAuth Credentials: {admob_config.get('oauth_credentials_path')}")
+    print(f"   Token Path: {admob_config.get('token_path', 'credentials/admob_token.json')}")
     print(f"   Publisher ID: {admob_config.get('publisher_id')}")
     print(f"   App IDs: {admob_config.get('app_ids', 'All apps')}")
     
@@ -43,19 +44,26 @@ def main():
     print(f"\n[INFO] Initializing AdMob fetcher...")
     try:
         fetcher = AdmobFetcher(
-            service_account_json_path=admob_config['service_account_json_path'],
+            oauth_credentials_path=admob_config['oauth_credentials_path'],
             publisher_id=admob_config['publisher_id'],
-            app_ids=admob_config.get('app_ids')
+            app_ids=admob_config.get('app_ids'),
+            token_path=admob_config.get('token_path', 'credentials/admob_token.json')
         )
         print("[OK] AdMob fetcher initialized successfully")
     except ImportError as e:
         print(f"[ERROR] Missing dependencies: {str(e)}")
         print("\n   Install required packages:")
-        print("   pip install google-auth google-api-python-client")
+        print("   pip install google-auth google-auth-oauthlib google-api-python-client")
         return
     except FileNotFoundError as e:
-        print(f"[ERROR] Service account file not found: {str(e)}")
-        print("\n   Please ensure the service account JSON file exists at the specified path")
+        print(f"[ERROR] OAuth credentials file not found: {str(e)}")
+        print("\n   To set up OAuth credentials:")
+        print("   1. Go to Google Cloud Console: https://console.cloud.google.com")
+        print("   2. Create or select a project")
+        print("   3. Enable AdMob API: https://console.cloud.google.com/apis/library/admob.googleapis.com")
+        print("   4. Go to Credentials > Create Credentials > OAuth client ID")
+        print("   5. Select 'Desktop app' as application type")
+        print("   6. Download the JSON and save as: credentials/admob_oauth_credentials.json")
         return
     except Exception as e:
         print(f"[ERROR] Failed to initialize AdMob fetcher: {str(e)}")

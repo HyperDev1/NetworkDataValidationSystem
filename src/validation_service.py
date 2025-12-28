@@ -84,19 +84,22 @@ class ValidationService:
             )
             print(f"   ✅ Unity Ads fetcher initialized")
         
-        # Google AdMob
+        # Google AdMob (OAuth 2.0)
         admob_config = self.config.get_admob_config()
-        if admob_config.get('enabled') and admob_config.get('service_account_json_path'):
+        if admob_config.get('enabled') and admob_config.get('oauth_credentials_path'):
             try:
                 self.network_fetchers['admob'] = AdmobFetcher(
-                    service_account_json_path=admob_config['service_account_json_path'],
+                    oauth_credentials_path=admob_config['oauth_credentials_path'],
                     publisher_id=admob_config['publisher_id'],
-                    app_ids=admob_config.get('app_ids')
+                    app_ids=admob_config.get('app_ids'),
+                    token_path=admob_config.get('token_path', 'credentials/admob_token.json')
                 )
-                print(f"   ✅ AdMob fetcher initialized")
+                print(f"   ✅ AdMob fetcher initialized (OAuth)")
             except ImportError as e:
                 print(f"   ⚠️ AdMob fetcher skipped: {str(e)}")
             except FileNotFoundError as e:
+                print(f"   ⚠️ AdMob fetcher skipped: {str(e)}")
+            except Exception as e:
                 print(f"   ⚠️ AdMob fetcher skipped: {str(e)}")
         
         # Meta Audience Network
