@@ -99,7 +99,7 @@ class SlackNotifier:
             "type": "context",
             "elements": [{
                 "type": "mrkdwn",
-                "text": f"📅 *Date:* {start_date} to {end_date} | 🕐 *Generated:* {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                "text": f"🕐 *Generated:* {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
             }]
         })
         

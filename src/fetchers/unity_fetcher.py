@@ -261,8 +261,8 @@ class UnityAdsFetcher(NetworkDataFetcher):
             'platform_data': platform_data,
             'network': self.get_network_name(),
             'date_range': {
-                'start': start_date.strftime("%Y-%m-%dT00:00:00Z"),
-                'end': end_date.strftime("%Y-%m-%dT23:59:00Z")
+                'start': start_date.strftime("%Y-%m-%d"),
+                'end': end_date.strftime("%Y-%m-%d")
             }
         }
         

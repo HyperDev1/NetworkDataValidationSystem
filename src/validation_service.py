@@ -25,7 +25,11 @@ class ValidationService:
         'IRONSOURCE_BIDDING': 'ironsource',
         'IRONSOURCE': 'ironsource',
         'FACEBOOK_NETWORK': 'meta',
+        'FACEBOOK_BIDDING': 'meta',
+        'FACEBOOK': 'meta',
         'META_AUDIENCE_NETWORK': 'meta',
+        'META_BIDDING': 'meta',
+        'META': 'meta',
     }
     
     def __init__(self, config: Config):
@@ -109,31 +113,51 @@ class ValidationService:
     
     def run_validation(self) -> Dict[str, Any]:
         """Run network comparison report."""
-        print(f"[{datetime.utcnow()}] Starting Network Comparison Report (UTC)...")
+        from datetime import timezone
+        
+        now_utc = datetime.now(timezone.utc)
+        print(f"[{now_utc.strftime('%Y-%m-%d %H:%M:%S')} UTC] Starting Network Comparison Report...")
         print("=" * 80)
         
-        # Calculate date range - 1 day delay for data availability
+        # Calculate date range - 1 day delay for data availability (UTC)
         validation_config = self.config.get_validation_config()
         date_range_days = validation_config.get('date_range_days', 1)
-        end_date = datetime.utcnow() - timedelta(days=1)
+        end_date = now_utc.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=1)
         start_date = end_date - timedelta(days=date_range_days - 1)
         
+        # Meta has 3-day reporting delay - calculate shifted dates
+        meta_delay_days = 3
+        meta_end_date = end_date - timedelta(days=meta_delay_days)
+        meta_start_date = start_date - timedelta(days=meta_delay_days)
+        
         print(f"📅 Date range (UTC): {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}")
+        print(f"📅 Meta date range (UTC, {meta_delay_days}-day delay): {meta_start_date.strftime('%Y-%m-%d')} to {meta_end_date.strftime('%Y-%m-%d')}")
         print("=" * 80)
         
         if not self.applovin_fetcher:
             print("❌ AppLovin fetcher not configured")
             return {'success': False, 'message': 'AppLovin fetcher not configured'}
         
-        # Step 1: Fetch MAX data from AppLovin
+        # Step 1: Fetch MAX data from AppLovin for standard networks
         print(f"\n📊 Step 1: Fetching AppLovin MAX data...")
         try:
             max_data = self.applovin_fetcher.fetch_data(start_date, end_date)
             max_rows = max_data.get('comparison_rows', [])
-            print(f"   ✅ Retrieved {len(max_rows)} rows from MAX")
+            print(f"   ✅ Retrieved {len(max_rows)} rows from MAX ({start_date.strftime('%Y-%m-%d')})")
         except Exception as e:
             print(f"   ❌ Error: {str(e)}")
             return {'success': False, 'message': f'Failed to fetch MAX data: {str(e)}'}
+        
+        # Step 1b: Fetch MAX data for Meta with shifted date range
+        max_rows_meta = []
+        if 'meta' in self.network_fetchers:
+            print(f"   📥 Fetching MAX data for Meta comparison ({meta_start_date.strftime('%Y-%m-%d')} to {meta_end_date.strftime('%Y-%m-%d')})...")
+            try:
+                max_data_meta = self.applovin_fetcher.fetch_data(meta_start_date, meta_end_date)
+                max_rows_meta = max_data_meta.get('comparison_rows', [])
+                print(f"   ✅ Retrieved {len(max_rows_meta)} rows from MAX for Meta comparison")
+            except Exception as e:
+                print(f"   ⚠️ Could not fetch META comparison data: {str(e)}")
         
         # Step 2: Fetch data from each enabled network
         print(f"\n📊 Step 2: Fetching data from individual networks...")
@@ -142,15 +166,32 @@ class ValidationService:
         for network_name, fetcher in self.network_fetchers.items():
             try:
                 print(f"   📥 Fetching {network_name}...")
-                data = fetcher.fetch_data(start_date, end_date)
+                # Use appropriate date range for each network
+                if network_name == 'meta':
+                    data = fetcher.fetch_data(meta_start_date, meta_end_date)
+                else:
+                    data = fetcher.fetch_data(start_date, end_date)
                 network_data[network_name] = data
-                print(f"      ✅ {network_name}: ${data.get('revenue', 0):.2f} revenue, {data.get('impressions', 0):,} imps")
+                date_range = data.get('date_range', {})
+                date_info = f"({date_range.get('start', '?')} to {date_range.get('end', '?')})"
+                print(f"      ✅ {network_name}: ${data.get('revenue', 0):.2f} revenue, {data.get('impressions', 0):,} imps {date_info}")
             except Exception as e:
                 print(f"      ❌ {network_name} error: {str(e)}")
         
         # Step 3: Merge MAX data with Network data
         print(f"\n📊 Step 3: Comparing MAX vs Network data...")
-        comparison_rows = self._merge_data(max_rows, network_data)
+        
+        # Merge standard networks with standard MAX data
+        comparison_rows = self._merge_data(max_rows, network_data, exclude_networks=['meta'])
+        
+        # Merge Meta with shifted MAX data
+        if max_rows_meta and 'meta' in network_data:
+            meta_comparison_rows = self._merge_data(max_rows_meta, network_data, include_networks=['meta'])
+            comparison_rows.extend(meta_comparison_rows)
+        
+        # Sort all rows
+        comparison_rows.sort(key=lambda x: (x['network'], x['application']))
+        
         print(f"   ✅ Generated {len(comparison_rows)} comparison rows")
         
         # Calculate totals
@@ -168,7 +209,7 @@ class ValidationService:
             # Send to Slack
             if self.notifier:
                 print("\n📤 Sending report to Slack...")
-                success = self._send_slack_report(comparison_rows, totals, start_date, end_date)
+                success = self._send_slack_report(comparison_rows, totals, start_date, end_date, network_data)
                 if success:
                     print("   ✅ Report sent successfully")
                 else:
@@ -184,9 +225,19 @@ class ValidationService:
             print("\n⚠️  No comparison data available")
             return {'success': True, 'message': 'No comparison data available'}
     
-    def _merge_data(self, max_rows: List[Dict], network_data: Dict[str, Any]) -> List[Dict]:
-        """Merge MAX data with network data for comparison. Only includes networks that have fetchers configured."""
+    def _merge_data(self, max_rows: List[Dict], network_data: Dict[str, Any], 
+                     exclude_networks: List[str] = None, include_networks: List[str] = None) -> List[Dict]:
+        """
+        Merge MAX data with network data for comparison.
+        
+        Args:
+            max_rows: MAX data rows from AppLovin
+            network_data: Network data from individual fetchers
+            exclude_networks: List of network keys to exclude (e.g., ['meta'])
+            include_networks: List of network keys to include only (e.g., ['meta'])
+        """
         comparison_rows = []
+        exclude_networks = exclude_networks or []
         
         for row in max_rows:
             network_name_raw = row.get('network', '').upper().replace(' ', '_')
@@ -194,6 +245,12 @@ class ValidationService:
             
             # Only include networks that have fetchers configured
             if not network_key or network_key not in network_data:
+                continue
+            
+            # Apply include/exclude filters
+            if include_networks and network_key not in include_networks:
+                continue
+            if network_key in exclude_networks:
                 continue
             
             net_data = network_data[network_key]
@@ -284,8 +341,10 @@ class ValidationService:
         
         return "\n".join(lines)
     
-    def _send_slack_report(self, comparison_rows: List[Dict], totals: Dict, start_date: datetime, end_date: datetime) -> bool:
+    def _send_slack_report(self, comparison_rows: List[Dict], totals: Dict, start_date: datetime, end_date: datetime, network_data: Dict[str, Any] = None) -> bool:
         """Send Network Comparison report to Slack with separate blocks per network."""
+        from datetime import timezone
+        
         blocks = []
         
         # Header
@@ -294,16 +353,13 @@ class ValidationService:
             "text": {"type": "plain_text", "text": "📊 Network Comparison Report", "emoji": True}
         })
         
-        # Date and totals
-        max_rev = totals.get('max_revenue', 0)
-        net_rev = totals.get('network_revenue', 0)
-        rev_diff = ((net_rev - max_rev) / max_rev * 100) if max_rev > 0 else 0
-        
+        # Generated date
+        now_utc = datetime.now(timezone.utc)
         blocks.append({
             "type": "context",
             "elements": [{
                 "type": "mrkdwn",
-                "text": f"📅 *Date:* {start_date.strftime('%Y-%m-%d')} | 💰 *MAX:* ${max_rev:,.2f} | 💰 *Network:* ${net_rev:,.2f} | 📈 *Delta:* {rev_diff:+.1f}%"
+                "text": f"📅 *Generated:* {now_utc.strftime('%Y-%m-%d %H:%M:%S')} UTC"
             }]
         })
         
@@ -326,7 +382,11 @@ class ValidationService:
             'IRONSOURCE': '🟠',
             'IRONSOURCE_BIDDING': '🟠',
             'FACEBOOK': '🔵',
+            'FACEBOOK_NETWORK': '🔵',
+            'FACEBOOK_BIDDING': '🔵',
             'META': '🔵',
+            'META_AUDIENCE_NETWORK': '🔵',
+            'META_BIDDING': '🔵',
         }
         
         # Create separate block for each network
@@ -343,12 +403,25 @@ class ValidationService:
             # Get network icon
             icon = network_icons.get(network_name.upper(), '📡')
             
+            # Get network date range from network_data
+            network_date_info = ""
+            if network_data:
+                # Map network display name to fetcher key
+                network_key_raw = network_name.upper().replace(' ', '_')
+                network_key = self.NETWORK_NAME_MAP.get(network_key_raw)
+                if network_key and network_key in network_data:
+                    net_date_range = network_data[network_key].get('date_range', {})
+                    net_start = net_date_range.get('start', '')
+                    net_end = net_date_range.get('end', '')
+                    if net_start and net_end:
+                        network_date_info = f"\n📅 Network Date: {net_start} to {net_end}"
+            
             # Network section header
             blocks.append({
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": f"{icon} *{network_name}*\n💰 MAX: ${network_max_rev:,.2f} → Network: ${network_net_rev:,.2f} ({rev_delta:+.1f}%)\n📈 Imps: {network_max_imps:,} → {network_net_imps:,} ({imp_delta:+.1f}%)"
+                    "text": f"{icon} *{network_name}*{network_date_info}\n💰 MAX: ${network_max_rev:,.2f} → Network: ${network_net_rev:,.2f} ({rev_delta:+.1f}%)\n📈 Imps: {network_max_imps:,} → {network_net_imps:,} ({imp_delta:+.1f}%)"
                 }
             })
             

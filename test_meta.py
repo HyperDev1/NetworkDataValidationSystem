@@ -11,7 +11,7 @@ def check_token_info(access_token: str):
     """Check token info and permissions."""
     print("\n🔍 Checking token info...")
     
-    url = "https://graph.facebook.com/v24.0/me"
+    url = "https://graph.facebook.com/v18.0/me"
     params = {"access_token": access_token, "fields": "id,name"}
     
     response = requests.get(url, params=params)
@@ -67,11 +67,14 @@ def test_meta_fetcher():
     )
     print(f"   ✅ Network name: {fetcher.get_network_name()}")
     
-    # Set date range (2 days ago - data delay)
-    end_date = datetime.now(timezone.utc) - timedelta(days=1)
+    # Meta has 3-day reporting delay - request data from 3 days ago (UTC)
+    now_utc = datetime.now(timezone.utc)
+    meta_delay_days = 3
+    end_date = now_utc.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=1) - timedelta(days=meta_delay_days)
     start_date = end_date
     
-    print(f"\n📅 Date range: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}")
+    print(f"\n📅 Requesting Meta data for: {start_date.strftime('%Y-%m-%d')} (UTC)")
+    print(f"   (This is {meta_delay_days + 1} days ago - Meta's latest available data)")
     
     # Fetch data
     print(f"\n📥 Fetching data...")

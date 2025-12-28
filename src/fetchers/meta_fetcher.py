@@ -16,6 +16,10 @@ class MetaFetcher(NetworkDataFetcher):
     # Graph API version
     API_VERSION = "v24.0"
     
+    # Meta Audience Network has a reporting delay of ~3 days
+    # Data is only available starting from 3 days ago
+    DATA_DELAY_DAYS = 3
+    
     # Ad format mapping - Meta placement to our standard categories
     AD_FORMAT_MAP = {
         'banner': 'banner',
@@ -142,29 +146,39 @@ class MetaFetcher(NetworkDataFetcher):
         
         API Docs: https://developers.facebook.com/docs/audience-network/optimization/report-api/guide-v2/
         
+        Note: Meta has a reporting delay of ~4 days. The caller (validation_service)
+        is responsible for passing the correct shifted date range.
+        Meta API has a maximum of 8 days limit for time range.
+        
         Args:
-            start_date: Start date for data fetch
-            end_date: End date for data fetch
+            start_date: Start date for data fetch (UTC)
+            end_date: End date for data fetch (UTC)
             
         Returns:
             Dictionary containing revenue, impressions, ecpm data by platform and ad type
         """
         print(f"      [INFO] Fetching Meta Audience Network data...")
         
+        from datetime import timedelta
+        
+        # Ensure we don't exceed Meta's 8-day limit
+        range_days = (end_date - start_date).days + 1
+        if range_days > 8:
+            start_date = end_date - timedelta(days=7)  # 8 days total
+            range_days = 8
+        
+        print(f"      [INFO] Meta date range: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')} ({range_days} days)")
+        
         # GET /{business_id}/adnetworkanalytics
-        # Example: https://graph.facebook.com/v24.0/BUSINESS_ID/adnetworkanalytics
-        #          ?metrics=["fb_ad_network_revenue","fb_ad_network_imp"]
-        #          &breakdowns=["platform","display_format"]
-        #          &since=2025-12-26&until=2025-12-26
         query_url = f"{self.base_url}/{self.business_id}/adnetworkanalytics"
         
         # Query parameters - metrics and breakdowns as JSON arrays in URL
-        # Date format: YYYY-MM-DDTHH:MM:SS (start at 00:00:00, end at 23:59:59)
+        # Date format: YYYY-MM-DD (according to Meta API docs)
         query_params = {
             "access_token": self.access_token,
-            "since": start_date.strftime("%Y-%m-%dT00:00:00"),
-            "until": end_date.strftime("%Y-%m-%dT23:59:59"),
-            "metrics": '["fb_ad_network_revenue","fb_ad_network_imp"]',
+            "since": start_date.strftime("%Y-%m-%dT00:00:00Z+0000"),
+            "until": end_date.strftime("%Y-%m-%dT23:59:59Z+0000"),
+            "metrics": '["fb_ad_network_revenue","fb_ad_network_imp","fb_ad_network_cpm"]',
             "breakdowns": '["platform","display_format"]',
         }
         
@@ -219,32 +233,25 @@ class MetaFetcher(NetworkDataFetcher):
             print(f"      [DEBUG] Meta returned no data.")
         else:
             print(f"      [DEBUG] Meta got {len(data)} data entries")
-            if data:
-                print(f"      [DEBUG] Meta sample data: {data[0] if isinstance(data, list) else data}")
         
-        # Process results
+        # Process results - Meta API returns each metric as a separate row
+        # Example: {"metric": "fb_ad_network_revenue", "breakdowns": [...], "value": "26.59"}
         results = data if isinstance(data, list) else [data] if data else []
         
         for entry in results:
             try:
-                # Handle nested results structure
+                # Handle nested results structure from query response
                 if 'results' in entry:
                     for row in entry.get('results', []):
-                        self._process_row(row, ad_data, platform_data)
-                        revenue = float(row.get('fb_ad_network_revenue', 0) or 0)
-                        impressions = int(row.get('fb_ad_network_imp', 0) or 0)
-                        total_revenue += revenue
-                        total_impressions += impressions
-                else:
-                    self._process_row(entry, ad_data, platform_data)
-                    revenue = float(entry.get('fb_ad_network_revenue', entry.get('value', 0)) or 0)
-                    impressions = int(entry.get('fb_ad_network_imp', 0) or 0)
-                    total_revenue += revenue
-                    total_impressions += impressions
-                    
+                        self._process_metric_row(row, ad_data, platform_data)
             except (TypeError, ValueError, KeyError) as e:
-                print(f"      [DEBUG] Meta entry parse error: {str(e)}, entry: {entry}")
+                print(f"      [DEBUG] Meta entry parse error: {str(e)}, entry: {str(entry)[:200]}")
                 continue
+        
+        # Calculate totals from ad_data
+        for ad_type in ad_data:
+            total_revenue += ad_data[ad_type]['revenue']
+            total_impressions += ad_data[ad_type]['impressions']
         
         # Build result
         result = {
@@ -308,10 +315,15 @@ class MetaFetcher(NetworkDataFetcher):
                 for item in results_data:
                     status = item.get('status', '')
                     print(f"      [DEBUG] Query status: {status}")
+                    print(f"      [DEBUG] Full item: {json.dumps(item, indent=2)[:1000]}")
                     
                     if status == 'complete':
                         # Return the results
-                        return item.get('results', [])
+                        results = item.get('results', [])
+                        print(f"      [DEBUG] Results count: {len(results) if results else 0}")
+                        if results:
+                            print(f"      [DEBUG] First result sample: {results[0] if results else 'empty'}")
+                        return results
                     elif status in ['failed', 'error']:
                         raise Exception(f"Query failed: {item}")
             
@@ -320,37 +332,48 @@ class MetaFetcher(NetworkDataFetcher):
         
         raise Exception("Query polling timed out")
     
-    def _process_row(self, row: dict, ad_data: dict, platform_data: dict):
-        """Process a single data row and accumulate into ad_data and platform_data."""
+    def _process_metric_row(self, row: dict, ad_data: dict, platform_data: dict):
+        """
+        Process a single metric row from Meta API.
+        
+        Meta API returns each metric as a separate row:
+        {"metric": "fb_ad_network_revenue", "breakdowns": [...], "value": "26.59"}
+        
+        Args:
+            row: Single row from API results
+            ad_data: Ad type aggregated data
+            platform_data: Platform aggregated data
+        """
         try:
-            # Extract metrics
-            revenue = float(row.get('fb_ad_network_revenue', row.get('value', 0)) or 0)
-            impressions = int(row.get('fb_ad_network_imp', 0) or 0)
+            metric = row.get('metric', '')
+            value = float(row.get('value', 0) or 0)
             
-            # Get breakdowns
-            breakdowns = row.get('breakdowns', {})
+            # Get breakdowns - list format: [{"key": "platform", "value": "android"}, ...]
+            breakdowns = row.get('breakdowns', [])
+            breakdowns_dict = {}
             if isinstance(breakdowns, list):
-                # Convert list of breakdowns to dict
-                breakdowns = {b.get('key'): b.get('value') for b in breakdowns if 'key' in b}
+                breakdowns_dict = {b.get('key'): b.get('value') for b in breakdowns if 'key' in b}
             
-            platform_raw = breakdowns.get('platform', row.get('platform', 'android'))
-            display_format = breakdowns.get('display_format', row.get('display_format', row.get('placement', '')))
+            platform_raw = breakdowns_dict.get('platform', 'android')
+            display_format = breakdowns_dict.get('display_format', 'interstitial')
             
             platform = self._normalize_platform(str(platform_raw))
             ad_format = self._normalize_ad_format(str(display_format))
             
-            # Accumulate by ad type
-            ad_data[ad_format]['revenue'] += revenue
-            ad_data[ad_format]['impressions'] += impressions
-            
-            # Accumulate by platform
-            platform_data[platform]['ad_data'][ad_format]['revenue'] += revenue
-            platform_data[platform]['ad_data'][ad_format]['impressions'] += impressions
-            platform_data[platform]['revenue'] += revenue
-            platform_data[platform]['impressions'] += impressions
+            # Only process revenue and impression metrics
+            if metric == 'fb_ad_network_revenue':
+                ad_data[ad_format]['revenue'] += value
+                platform_data[platform]['ad_data'][ad_format]['revenue'] += value
+                platform_data[platform]['revenue'] += value
+            elif metric == 'fb_ad_network_imp':
+                int_value = int(value)
+                ad_data[ad_format]['impressions'] += int_value
+                platform_data[platform]['ad_data'][ad_format]['impressions'] += int_value
+                platform_data[platform]['impressions'] += int_value
+            # Skip cpm - we calculate it ourselves
             
         except (TypeError, ValueError, KeyError) as e:
-            print(f"      [DEBUG] Row process error: {str(e)}, row: {row}")
+            print(f"      [DEBUG] Row process error: {str(e)}, row: {str(row)[:200]}")
     
     def get_network_name(self) -> str:
         """Return the network name."""
