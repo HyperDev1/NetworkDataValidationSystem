@@ -1,83 +1,56 @@
 """
-Main validation service orchestrating data fetching, validation, and notifications.
-Compares Applovin Max network breakdown data against each network's own API data.
+Main validation service orchestrating data fetching and Slack notifications.
+Compares AppLovin MAX data with individual network data.
 """
 from datetime import datetime, timedelta
-from typing import List, Dict, Any
+from typing import Dict, Any, List
 from src.config import Config
-from src.fetchers import AdjustFetcher, ApplovinFetcher, MockAdjustFetcher, MintegralFetcher, MockMintegralFetcher, NetworkDataFetcher
-from src.validators import DataValidator
+from src.fetchers import ApplovinFetcher, MintegralFetcher, UnityAdsFetcher, AdmobFetcher, MetaFetcher
 from src.notifiers import SlackNotifier
-from src.reporters import TableReporter
 
 
 class ValidationService:
-    """Main service for orchestrating network data validation."""
+    """Main service for comparing MAX data with network data."""
     
-    # Mapping from fetcher network names to Applovin breakdown names
+    # Network name mapping - AppLovin network names to our fetcher names
     NETWORK_NAME_MAP = {
-        'Adjust': ['Adjust'],
-        'Adjust (Mock)': ['Adjust'],
-        'Mintegral': ['Mintegral'],
-        'AdMob': ['Admob', 'AdMob', 'ADMOB'],
-        'Meta': ['Facebook', 'Meta', 'META_AUDIENCE_NETWORK'],
-        'Unity Ads': ['Unity', 'Unity Ads', 'UNITY'],
-        'IronSource': ['Ironsource', 'IronSource', 'IRONSOURCE'],
-        'Vungle': ['Vungle', 'VUNGLE'],
-        'Pangle': ['Tiktok', 'Pangle', 'Bytedance', 'PANGLE'],
-        'Chartboost': ['Chartboost', 'CHARTBOOST'],
-        'InMobi': ['Inmobi', 'InMobi', 'INMOBI'],
-        'AppLovin': ['Applovin', 'AppLovin', 'APPLOVIN'],
+        'MINTEGRAL_BIDDING': 'mintegral',
+        'MINTEGRAL': 'mintegral',
+        'UNITY_BIDDING': 'unity',
+        'UNITY': 'unity',
+        'ADMOB_BIDDING': 'admob',
+        'ADMOB': 'admob',
+        'GOOGLE_BIDDING': 'admob',
+        'GOOGLE': 'admob',
+        'IRONSOURCE_BIDDING': 'ironsource',
+        'IRONSOURCE': 'ironsource',
+        'FACEBOOK_NETWORK': 'meta',
+        'META_AUDIENCE_NETWORK': 'meta',
     }
     
     def __init__(self, config: Config):
         """Initialize validation service."""
         self.config = config
-        self.applovin_fetcher = None  # Single fetcher for all platforms
-        self.network_fetchers = {}    # {'network_name': fetcher}
-        self.validator = None
+        self.applovin_fetcher = None
+        self.network_fetchers = {}
         self.notifier = None
-        self.reporter = TableReporter()
         
         self._initialize_components()
     
     def _initialize_components(self):
-        """Initialize fetchers, validator, and notifier based on configuration."""
-        # Initialize Applovin Max fetcher - single fetcher for all platforms
+        """Initialize fetchers and notifier based on configuration."""
+        # Initialize Applovin Max fetcher (source of MAX data)
         applovin_config = self.config.get_applovin_config()
         if applovin_config and applovin_config.get('api_key'):
-            api_key = applovin_config['api_key']
-            applications = applovin_config.get('applications', '')
-            
-            if applications:
-                self.applovin_fetcher = ApplovinFetcher(
-                    api_key=api_key,
-                    applications=applications
-                )
+            self.applovin_fetcher = ApplovinFetcher(
+                api_key=applovin_config['api_key'],
+                applications=applovin_config.get('applications', [])
+            )
         
-        # Add Mintegral - single fetcher returns both platforms
-        mintegral_config = self.config.get_mintegral_config()
-        if mintegral_config and mintegral_config.get('skey') and mintegral_config.get('secret'):
-            use_mock = mintegral_config.get('use_mock', False)
-            skey = mintegral_config['skey']
-            secret = mintegral_config['secret']
-            app_ids = mintegral_config.get('app_ids', '')
-            
-            if use_mock:
-                self.network_fetchers['Mintegral'] = MockMintegralFetcher()
-            else:
-                self.network_fetchers['Mintegral'] = MintegralFetcher(
-                    skey=skey,
-                    secret=secret,
-                    app_id=app_ids if app_ids else None
-                )
+        # Initialize Network fetchers (source of Network data)
+        self._initialize_network_fetchers()
         
-        # Initialize validator
-        validation_config = self.config.get_validation_config()
-        threshold = validation_config.get('threshold_percentage', 5.0)
-        self.validator = DataValidator(threshold_percentage=threshold)
-        
-        # Initialize notifier
+        # Initialize Slack notifier
         slack_config = self.config.get_slack_config()
         if slack_config and slack_config.get('webhook_url'):
             self.notifier = SlackNotifier(
@@ -85,44 +58,61 @@ class ValidationService:
                 channel=slack_config.get('channel')
             )
     
-    def _find_applovin_network_data(self, network_breakdown: Dict, network_name: str) -> Dict[str, Any]:
-        """Find matching network data from Applovin breakdown."""
-        possible_names = self.NETWORK_NAME_MAP.get(network_name, [network_name])
+    def _initialize_network_fetchers(self):
+        """Initialize individual network fetchers."""
+        # Mintegral
+        mintegral_config = self.config.get_mintegral_config()
+        if mintegral_config.get('enabled') and mintegral_config.get('skey'):
+            self.network_fetchers['mintegral'] = MintegralFetcher(
+                skey=mintegral_config['skey'],
+                secret=mintegral_config['secret'],
+                app_id=mintegral_config.get('app_ids')
+            )
+            print(f"   ✅ Mintegral fetcher initialized")
         
-        # Direct match
-        for name in possible_names:
-            if name in network_breakdown:
-                return network_breakdown[name]
+        # Unity Ads
+        unity_config = self.config.get_unity_config()
+        if unity_config.get('enabled') and unity_config.get('api_key'):
+            self.network_fetchers['unity'] = UnityAdsFetcher(
+                api_key=unity_config['api_key'],
+                organization_id=unity_config.get('organization_id'),
+                game_ids=unity_config.get('game_ids')
+            )
+            print(f"   ✅ Unity Ads fetcher initialized")
         
-        # Match with suffix variations (Bidding, Network, Exchange)
-        for key in network_breakdown:
-            key_base = key.replace(' Bidding', '').replace(' Network', '').replace(' Exchange', '').strip()
-            
-            # Check against possible names
-            for pn in possible_names:
-                if key_base.lower() == pn.lower():
-                    return network_breakdown[key]
-            
-            # Check against network_name directly
-            if key_base.lower() == network_name.lower().replace(' (mock)', '').strip():
-                return network_breakdown[key]
+        # Google AdMob
+        admob_config = self.config.get_admob_config()
+        if admob_config.get('enabled') and admob_config.get('service_account_json_path'):
+            try:
+                self.network_fetchers['admob'] = AdmobFetcher(
+                    service_account_json_path=admob_config['service_account_json_path'],
+                    publisher_id=admob_config['publisher_id'],
+                    app_ids=admob_config.get('app_ids')
+                )
+                print(f"   ✅ AdMob fetcher initialized")
+            except ImportError as e:
+                print(f"   ⚠️ AdMob fetcher skipped: {str(e)}")
+            except FileNotFoundError as e:
+                print(f"   ⚠️ AdMob fetcher skipped: {str(e)}")
         
-        # Partial match (network name contained in key)
-        for key in network_breakdown:
-            for pn in possible_names:
-                if pn.lower() in key.lower():
-                    return network_breakdown[key]
-        
-        return None
+        # Meta Audience Network
+        meta_config = self.config.get_meta_config()
+        if meta_config.get('enabled') and meta_config.get('access_token'):
+            try:
+                self.network_fetchers['meta'] = MetaFetcher(
+                    access_token=meta_config['access_token'],
+                    business_id=meta_config['business_id']
+                )
+                print(f"   ✅ Meta Audience Network fetcher initialized")
+            except Exception as e:
+                print(f"   ⚠️ Meta fetcher skipped: {str(e)}")
     
     def run_validation(self) -> Dict[str, Any]:
-        """
-        Run validation check comparing Applovin network breakdown vs each network's own API.
-        """
-        print(f"[{datetime.utcnow()}] Starting validation check (UTC)...")
+        """Run network comparison report."""
+        print(f"[{datetime.utcnow()}] Starting Network Comparison Report (UTC)...")
         print("=" * 80)
         
-        # Calculate date range using UTC+0
+        # Calculate date range - 1 day delay for data availability
         validation_config = self.config.get_validation_config()
         date_range_days = validation_config.get('date_range_days', 1)
         end_date = datetime.utcnow() - timedelta(days=1)
@@ -131,111 +121,54 @@ class ValidationService:
         print(f"📅 Date range (UTC): {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}")
         print("=" * 80)
         
-        # Fetch Applovin Max data (single request returns both platforms)
-        applovin_data = None
-        combined_network_breakdown = {}
+        if not self.applovin_fetcher:
+            print("❌ AppLovin fetcher not configured")
+            return {'success': False, 'message': 'AppLovin fetcher not configured'}
         
-        if self.applovin_fetcher:
-            try:
-                print(f"\n📊 Fetching Applovin Max data...")
-                applovin_data = self.applovin_fetcher.fetch_data(start_date, end_date)
-                print(f"   Total: ${applovin_data['revenue']:,.2f} | {applovin_data['impressions']:,} imp | ${applovin_data['ecpm']:.2f} eCPM")
-                
-                # Show platform breakdown
-                for platform in ['android', 'ios']:
-                    plat_data = applovin_data.get('platform_data', {}).get(platform, {})
-                    if plat_data.get('revenue', 0) > 0 or plat_data.get('impressions', 0) > 0:
-                        print(f"      {platform.upper()}: ${plat_data.get('revenue', 0):,.2f} | {plat_data.get('impressions', 0):,} imp")
-                
-                # Get network breakdown - it already has platform_data for each network
-                combined_network_breakdown = applovin_data.get('network_breakdown', {})
-                
-            except Exception as e:
-                print(f"   ❌ Error fetching Applovin data: {str(e)}")
-                return {'success': False, 'message': f'Failed to fetch Applovin data: {str(e)}'}
-        else:
-            print("❌ Applovin fetcher not configured")
-            return {'success': False, 'message': 'Applovin fetcher not configured'}
+        # Step 1: Fetch MAX data from AppLovin
+        print(f"\n📊 Step 1: Fetching AppLovin MAX data...")
+        try:
+            max_data = self.applovin_fetcher.fetch_data(start_date, end_date)
+            max_rows = max_data.get('comparison_rows', [])
+            print(f"   ✅ Retrieved {len(max_rows)} rows from MAX")
+        except Exception as e:
+            print(f"   ❌ Error: {str(e)}")
+            return {'success': False, 'message': f'Failed to fetch MAX data: {str(e)}'}
         
-        # Show combined network breakdown
-        if combined_network_breakdown:
-            print(f"\n   📈 Network Breakdown (as seen in Applovin Max):")
-            for net_name, net_data in sorted(combined_network_breakdown.items()):
-                # Recalculate eCPM
-                total_imp = net_data['impressions']
-                net_data['ecpm'] = (net_data['revenue'] / total_imp * 1000) if total_imp > 0 else 0
-                print(f"      {net_name:<18}: ${net_data['revenue']:>10,.2f} {net_data['impressions']:>12,} imp ${net_data['ecpm']:>6.2f} eCPM")
+        # Step 2: Fetch data from each enabled network
+        print(f"\n📊 Step 2: Fetching data from individual networks...")
+        network_data = {}
         
-        # Fetch data from each network's own API for each platform
-        print(f"\n{'=' * 80}")
-        print("📊 Fetching data from individual network APIs...")
-        print("=" * 80)
-        
-        network_own_data = {}
         for network_name, fetcher in self.network_fetchers.items():
             try:
-                print(f"\n   🔄 Fetching from {network_name}...")
+                print(f"   📥 Fetching {network_name}...")
                 data = fetcher.fetch_data(start_date, end_date)
-                
-                # Store the data - fetcher returns platform_data already
-                network_own_data[network_name] = {
-                    'platform_data': data.get('platform_data', {}),
-                    'revenue': data.get('revenue', 0),
-                    'impressions': data.get('impressions', 0),
-                    'ecpm': data.get('ecpm', 0),
-                    'ad_data': data.get('ad_data', {})
-                }
-                
-                print(f"      Total: ${data.get('revenue', 0):,.2f} {data.get('impressions', 0):,} imp ${data.get('ecpm', 0):.2f} eCPM")
-                
-                # Show platform breakdown
-                for plat, plat_data in data.get('platform_data', {}).items():
-                    print(f"      {plat.upper()}: ${plat_data.get('revenue', 0):,.2f} {plat_data.get('impressions', 0):,} imp")
-                    
+                network_data[network_name] = data
+                print(f"      ✅ {network_name}: ${data.get('revenue', 0):.2f} revenue, {data.get('impressions', 0):,} imps")
             except Exception as e:
-                print(f"      ❌ Error: {str(e)}")
-            
-            # Calculate combined eCPM
-            total_imp = network_own_data[network_name]['impressions']
-            total_rev = network_own_data[network_name]['revenue']
-            network_own_data[network_name]['ecpm'] = (total_rev / total_imp * 1000) if total_imp > 0 else 0
+                print(f"      ❌ {network_name} error: {str(e)}")
         
-        # Build comparison data for table display
-        comparison_rows = []
+        # Step 3: Merge MAX data with Network data
+        print(f"\n📊 Step 3: Comparing MAX vs Network data...")
+        comparison_rows = self._merge_data(max_rows, network_data)
+        print(f"   ✅ Generated {len(comparison_rows)} comparison rows")
         
-        print(f"\n{'=' * 80}")
-        print("📊 COMPARISON: Applovin Max Data vs Network's Own API Data")
-        print("=" * 80)
+        # Calculate totals
+        totals = self._calculate_totals(comparison_rows)
         
-        for network_name, own_data in network_own_data.items():
-            applovin_network_data = self._find_applovin_network_data(combined_network_breakdown, network_name)
-            
-            if applovin_network_data:
-                comparison_rows.append({
-                    'network': network_name,
-                    'applovin_data': applovin_network_data,
-                    'own_data': own_data
-                })
-            else:
-                print(f"\n   ⚠️  {network_name}: Not found in Applovin breakdown")
-                comparison_rows.append({
-                    'network': network_name,
-                    'applovin_data': None,
-                    'own_data': own_data
-                })
-        
-        # Generate comparison table
+        # Display table
         if comparison_rows:
-            table = self._generate_comparison_table(comparison_rows, start_date, end_date)
-            print(table)
+            print(f"\n{'=' * 80}")
+            print("📈 NETWORK COMPARISON REPORT")
+            print("=" * 80)
             
-            # Check for discrepancies
-            discrepancies = self._check_discrepancies(comparison_rows)
+            table = self._generate_comparison_table(comparison_rows)
+            print(table)
             
             # Send to Slack
             if self.notifier:
                 print("\n📤 Sending report to Slack...")
-                success = self._send_slack_report(comparison_rows, discrepancies, start_date, end_date)
+                success = self._send_slack_report(comparison_rows, totals, start_date, end_date)
                 if success:
                     print("   ✅ Report sent successfully")
                 else:
@@ -243,305 +176,221 @@ class ValidationService:
             
             return {
                 'success': True,
-                'has_discrepancy': len(discrepancies) > 0,
-                'discrepancies': discrepancies,
                 'comparison_rows': comparison_rows,
+                'totals': totals,
                 'timestamp': datetime.now().isoformat()
             }
         else:
-            print("\n⚠️  No networks to compare")
-            return {
-                'success': True,
-                'has_discrepancy': False,
-                'message': 'No networks to compare',
-                'timestamp': datetime.now().isoformat()
-            }
+            print("\n⚠️  No comparison data available")
+            return {'success': True, 'message': 'No comparison data available'}
     
-    def _generate_comparison_table(self, comparison_rows: List[Dict], start_date: datetime, end_date: datetime) -> str:
-        """Generate comparison table showing Applovin data vs Network's own data per platform."""
-        lines = []
+    def _merge_data(self, max_rows: List[Dict], network_data: Dict[str, Any]) -> List[Dict]:
+        """Merge MAX data with network data for comparison. Only includes networks that have fetchers configured."""
+        comparison_rows = []
         
-        for row in comparison_rows:
-            network = row['network']
-            applovin_data = row.get('applovin_data')
-            own_data = row.get('own_data')
+        for row in max_rows:
+            network_name_raw = row.get('network', '').upper().replace(' ', '_')
+            network_key = self.NETWORK_NAME_MAP.get(network_name_raw)
             
-            if not applovin_data and not own_data:
+            # Only include networks that have fetchers configured
+            if not network_key or network_key not in network_data:
                 continue
             
-            for platform in ['android', 'ios']:
-                platform_icon = "🤖" if platform == "android" else "🍎"
-                plat_name = "ANDROID" if platform == "android" else "IOS"
-                
-                ap_plat = applovin_data.get('platform_data', {}).get(platform, {}) if applovin_data else {}
-                own_plat = own_data.get('platform_data', {}).get(platform, {}) if own_data else {}
-                
-                lines.append("")
-                lines.append(f"{platform_icon} {plat_name} Platform")
-                lines.append(f"                  │               Applovin Max                  │               {network[:18]:<18}         ")
-                lines.append(f"Ad Type           │    Revenue     │     eCPM     │     Impr     │    Revenue     │     eCPM     │     Impr")
-                lines.append(f"──────────────────┼────────────────┼──────────────┼──────────────┼────────────────┼──────────────┼──────────────")
-                
-                for ad_type in ['Banner', 'Interstitial', 'Rewarded']:
-                    ad_key = ad_type.lower()
-                    ap_ad = ap_plat.get('ad_data', {}).get(ad_key, {'revenue': 0, 'ecpm': 0, 'impressions': 0})
-                    own_ad = own_plat.get('ad_data', {}).get(ad_key, {'revenue': 0, 'ecpm': 0, 'impressions': 0})
-                    
-                    lines.append(
-                        f"{ad_type:<17} │ "
-                        f"${ap_ad.get('revenue',0):>12,.2f}  │  ${ap_ad.get('ecpm',0):>8.2f}  │  {ap_ad.get('impressions',0):>10,}  │ "
-                        f"${own_ad.get('revenue',0):>12,.2f}  │  ${own_ad.get('ecpm',0):>8.2f}  │  {own_ad.get('impressions',0):>10,}"
-                    )
-                
-                lines.append(f"──────────────────┼────────────────┼──────────────┼──────────────┼────────────────┼──────────────┼──────────────")
-                
-                lines.append(
-                    f"{'TOTAL':<17} │ "
-                    f"${ap_plat.get('revenue',0):>12,.2f}  │  ${ap_plat.get('ecpm',0):>8.2f}  │  {ap_plat.get('impressions',0):>10,}  │ "
-                    f"${own_plat.get('revenue',0):>12,.2f}  │  ${own_plat.get('ecpm',0):>8.2f}  │  {own_plat.get('impressions',0):>10,}"
-                )
-                
-                # Diff
-                ap_tr = ap_plat.get('revenue', 0)
-                own_tr = own_plat.get('revenue', 0)
-                if ap_tr == 0 and own_tr == 0:
-                    diff_str = "-"
-                elif ap_tr == 0:
-                    diff_str = "∞%"
-                else:
-                    diff = ((own_tr - ap_tr) / ap_tr) * 100
-                    sign = "+" if diff > 0 else ""
-                    diff_str = f"{sign}{diff:.1f}%"
-                
-                lines.append(f"{'DIFF':<17} │ Revenue: {diff_str}")
-                lines.append("")
+            net_data = network_data[network_key]
+            platform = 'ios' if 'iOS' in row.get('application', '') else 'android'
+            ad_type = row.get('ad_type', '').lower()
+            
+            # Get platform-specific data
+            platform_data = net_data.get('platform_data', {}).get(platform, {})
+            ad_data = platform_data.get('ad_data', {}).get(ad_type, {})
+            
+            # Skip if no network data for this ad type
+            if ad_data.get('impressions', 0) == 0:
+                continue
+            
+            net_revenue = ad_data.get('revenue', 0)
+            net_impressions = ad_data.get('impressions', 0)
+            net_ecpm = ad_data.get('ecpm', 0)
+            
+            # Calculate deltas
+            imp_delta = self._calculate_delta(row['max_impressions'], net_impressions)
+            rev_delta = self._calculate_delta(row['max_revenue'], net_revenue)
+            cpm_delta = self._calculate_delta(row['max_ecpm'], net_ecpm)
+            
+            comparison_rows.append({
+                'application': row['application'],
+                'network': row['network'],
+                'ad_type': row['ad_type'],
+                'max_impressions': row['max_impressions'],
+                'network_impressions': net_impressions,
+                'imp_delta': imp_delta,
+                'max_revenue': row['max_revenue'],
+                'network_revenue': net_revenue,
+                'rev_delta': rev_delta,
+                'max_ecpm': row['max_ecpm'],
+                'network_ecpm': net_ecpm,
+                'cpm_delta': cpm_delta,
+            })
+        
+        # Sort by application, then network
+        comparison_rows.sort(key=lambda x: (x['network'], x['application']))
+        
+        return comparison_rows
+    
+    def _calculate_delta(self, max_val: float, network_val: float) -> str:
+        """Calculate delta percentage."""
+        if max_val == 0 and network_val == 0:
+            return "0.0%"
+        elif max_val == 0:
+            return "+∞%"
+        
+        delta = ((network_val - max_val) / max_val) * 100
+        sign = "+" if delta > 0 else ""
+        return f"{sign}{delta:.1f}%"
+    
+    def _calculate_totals(self, comparison_rows: List[Dict]) -> Dict:
+        """Calculate totals from comparison rows."""
+        totals = {
+            'max_revenue': sum(r['max_revenue'] for r in comparison_rows),
+            'network_revenue': sum(r['network_revenue'] for r in comparison_rows),
+            'max_impressions': sum(r['max_impressions'] for r in comparison_rows),
+            'network_impressions': sum(r['network_impressions'] for r in comparison_rows),
+        }
+        return totals
+    
+    def _generate_comparison_table(self, comparison_rows: List[Dict]) -> str:
+        """Generate comparison table for terminal output."""
+        lines = []
+        
+        # Header
+        lines.append(f"{'Application':<28} │ {'Network':<18} │ {'Ad Type':<12} │ {'MAX Imps':>10} │ {'Net Imps':>10} │ {'Imp Δ':>8} │ {'MAX Rev':>10} │ {'Net Rev':>10} │ {'Rev Δ':>8} │ {'MAX CPM':>8} │ {'Net CPM':>8} │ {'CPM Δ':>8}")
+        lines.append("─" * 180)
+        
+        for row in comparison_rows:
+            lines.append(
+                f"{row['application']:<28} │ "
+                f"{row['network']:<18} │ "
+                f"{row['ad_type']:<12} │ "
+                f"{row['max_impressions']:>10,} │ "
+                f"{row['network_impressions']:>10,} │ "
+                f"{row['imp_delta']:>8} │ "
+                f"${row['max_revenue']:>9,.2f} │ "
+                f"${row['network_revenue']:>9,.2f} │ "
+                f"{row['rev_delta']:>8} │ "
+                f"${row['max_ecpm']:>7,.2f} │ "
+                f"${row['network_ecpm']:>7,.2f} │ "
+                f"{row['cpm_delta']:>8}"
+            )
         
         return "\n".join(lines)
     
-    def _calc_diff(self, applovin_val: float, own_val: float) -> str:
-        """Calculate difference percentage."""
-        if applovin_val == 0 and own_val == 0:
-            return "-"
-        elif applovin_val == 0:
-            return "∞%"
-        diff_pct = ((own_val - applovin_val) / applovin_val) * 100
-        sign = "+" if diff_pct > 0 else ""
-        return f"Revenue: {sign}{diff_pct:.1f}%"
-    
-    def _format_table_row(self, platform: str, network: str, source: str, plat_data: Dict) -> str:
-        """Format a single table row."""
-        def get_cell(ad_type: str) -> str:
-            ad_info = plat_data.get('ad_data', {}).get(ad_type, {})
-            rev = ad_info.get('revenue', 0)
-            return f"${rev:,.0f}"
-        
-        total = plat_data.get('revenue', 0)
-        
-        return f"│ {platform:<10} │ {network:<13} │ {source:<10} │ {get_cell('rewarded'):>12} │ {get_cell('interstitial'):>12} │ {get_cell('banner'):>12} │ ${total:>10,.0f} │"
-    
-    def _format_diff_row(self, applovin_plat: Dict, own_plat: Dict) -> str:
-        """Format difference row."""
-        def get_diff(ad_type: str) -> str:
-            applovin_rev = applovin_plat.get('ad_data', {}).get(ad_type, {}).get('revenue', 0)
-            own_rev = own_plat.get('ad_data', {}).get(ad_type, {}).get('revenue', 0)
-            
-            if applovin_rev == 0 and own_rev == 0:
-                return "-"
-            elif applovin_rev == 0:
-                return "∞%"
-            diff_pct = ((own_rev - applovin_rev) / applovin_rev) * 100
-            sign = "+" if diff_pct > 0 else ""
-            return f"{sign}{diff_pct:.1f}%"
-        
-        applovin_total = applovin_plat.get('revenue', 0)
-        own_total = own_plat.get('revenue', 0)
-        
-        if applovin_total == 0 and own_total == 0:
-            total_diff = "-"
-        elif applovin_total == 0:
-            total_diff = "∞%"
-        else:
-            diff_pct = ((own_total - applovin_total) / applovin_total) * 100
-            sign = "+" if diff_pct > 0 else ""
-            total_diff = f"{sign}{diff_pct:.1f}%"
-        
-        return f"│ {'':10} │ {'':13} │ {'DIFF':<10} │ {get_diff('rewarded'):>12} │ {get_diff('interstitial'):>12} │ {get_diff('banner'):>12} │ {total_diff:>11} │"
-    
-    def _check_discrepancies(self, comparison_rows: List[Dict]) -> List[Dict]:
-        """Check for discrepancies exceeding threshold."""
-        discrepancies = []
-        threshold = self.validator.threshold_percentage
-        
-        for row in comparison_rows:
-            applovin_data = row.get('applovin_data')
-            own_data = row.get('own_data')
-            
-            if not applovin_data or not own_data:
-                continue
-            
-            for platform in ['android', 'ios']:
-                applovin_plat = applovin_data.get('platform_data', {}).get(platform, {})
-                own_plat = own_data.get('platform_data', {}).get(platform, {})
-                
-                for ad_type in ['rewarded', 'interstitial', 'banner']:
-                    applovin_rev = applovin_plat.get('ad_data', {}).get(ad_type, {}).get('revenue', 0)
-                    own_rev = own_plat.get('ad_data', {}).get(ad_type, {}).get('revenue', 0)
-                    
-                    if applovin_rev == 0 and own_rev == 0:
-                        continue
-                    
-                    if applovin_rev == 0:
-                        diff_pct = float('inf')
-                    else:
-                        diff_pct = abs((own_rev - applovin_rev) / applovin_rev) * 100
-                    
-                    if diff_pct > threshold:
-                        discrepancies.append({
-                            'network': row['network'],
-                            'platform': platform,
-                            'ad_type': ad_type,
-                            'applovin_revenue': applovin_rev,
-                            'own_revenue': own_rev,
-                            'diff_percentage': diff_pct
-                        })
-        
-        return discrepancies
-    
-    def _send_slack_report(self, comparison_rows: List[Dict], discrepancies: List[Dict], start_date: datetime, end_date: datetime) -> bool:
-        """Send comparison report to Slack."""
+    def _send_slack_report(self, comparison_rows: List[Dict], totals: Dict, start_date: datetime, end_date: datetime) -> bool:
+        """Send Network Comparison report to Slack with separate blocks per network."""
         blocks = []
         
         # Header
-        has_disc = len(discrepancies) > 0
-        header_emoji = "⚠️" if has_disc else "📊"
-        header_text = "Network Data Discrepancy Alert" if has_disc else "Network Data Report"
-        
         blocks.append({
             "type": "header",
-            "text": {"type": "plain_text", "text": f"{header_emoji} {header_text}", "emoji": True}
+            "text": {"type": "plain_text", "text": "📊 Network Comparison Report", "emoji": True}
         })
+        
+        # Date and totals
+        max_rev = totals.get('max_revenue', 0)
+        net_rev = totals.get('network_revenue', 0)
+        rev_diff = ((net_rev - max_rev) / max_rev * 100) if max_rev > 0 else 0
         
         blocks.append({
             "type": "context",
             "elements": [{
                 "type": "mrkdwn",
-                "text": f"📅 *Date:* {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')} | 🕐 *Generated:* {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                "text": f"📅 *Date:* {start_date.strftime('%Y-%m-%d')} | 💰 *MAX:* ${max_rev:,.2f} | 💰 *Network:* ${net_rev:,.2f} | 📈 *Delta:* {rev_diff:+.1f}%"
             }]
         })
         
         blocks.append({"type": "divider"})
         
-        # Comparison tables per network per platform - using rich_text block
+        # Group rows by network
+        networks = {}
         for row in comparison_rows:
-            network = row['network']
-            applovin_data = row.get('applovin_data')
-            own_data = row.get('own_data')
+            network_name = row['network']
+            if network_name not in networks:
+                networks[network_name] = []
+            networks[network_name].append(row)
+        
+        # Network icons mapping
+        network_icons = {
+            'MINTEGRAL': '🟣',
+            'MINTEGRAL_BIDDING': '🟣',
+            'UNITY': '🎮',
+            'UNITY_BIDDING': '🎮',
+            'IRONSOURCE': '🟠',
+            'IRONSOURCE_BIDDING': '🟠',
+            'FACEBOOK': '🔵',
+            'META': '🔵',
+        }
+        
+        # Create separate block for each network
+        for network_name, rows in networks.items():
+            # Calculate network totals
+            network_max_rev = sum(r['max_revenue'] for r in rows)
+            network_net_rev = sum(r['network_revenue'] for r in rows)
+            network_max_imps = sum(r['max_impressions'] for r in rows)
+            network_net_imps = sum(r['network_impressions'] for r in rows)
             
-            if not applovin_data and not own_data:
-                continue
+            rev_delta = ((network_net_rev - network_max_rev) / network_max_rev * 100) if network_max_rev > 0 else 0
+            imp_delta = ((network_net_imps - network_max_imps) / network_max_imps * 100) if network_max_imps > 0 else 0
             
-            for platform in ['android', 'ios']:
-                plat_icon = "🤖" if platform == "android" else "🍎"
-                plat_name = "ANDROID" if platform == "android" else "IOS"
-                
-                ap_plat = applovin_data.get('platform_data', {}).get(platform, {}) if applovin_data else {}
-                own_plat = own_data.get('platform_data', {}).get(platform, {}) if own_data else {}
-                
-                net_short = network[:15]
-                
-                # Helper function for diff calculation
-                def calc_diff_str(ap_val, own_val):
-                    if ap_val == 0 and own_val == 0:
-                        return "-"
-                    elif ap_val == 0:
-                        return "∞%"
-                    else:
-                        diff = ((own_val - ap_val) / ap_val) * 100
-                        sign = "+" if diff > 0 else ""
-                        return f"{sign}{diff:.1f}%"
-                
-                # Fixed column widths - precisely matched
-                W_AD = 15    # width for ad type
-                W_REV = 15    # width for revenue value after $
-                W_ECPM = 15   # width for ecpm value after $
-                W_IMPR = 15   # width for impr value
-                W_DREV = 15  # width for diff revenue percentage
-                W_DECPM = 15  # width for diff ecpm percentage
-                W_DIMPR = 15  # width for diff impr percentage
-                
-                # Header separator widths (content + 2 spaces)
-                SEP_REV = '-' * (W_REV + 3)    # 11 dashes
-                SEP_ECPM = '-' * (W_ECPM + 3)  # 7 dashes
-                SEP_IMPR = '-' * (W_IMPR + 2)  # 11 dashes
-                SEP_DREV = '-' * (W_DREV + 2)  # 13 dashes
-                SEP_DECPM = '-' * (W_DECPM + 2) # 9 dashes
-                SEP_DIMPR = '-' * (W_DIMPR + 2) # 11 dashes
-                SEP_AD = '-' * (W_AD + 2)      # 17 dashes
-                
-                table_lines = []
-                table_lines.append(f"{plat_icon} {plat_name} Platform")
-                table_lines.append(f"")
-                table_lines.append(f"| {'Ad Type':<{W_AD}} |{'Applovin Max':^{W_REV+W_ECPM+W_IMPR+10}}|{net_short:^{W_REV+W_ECPM+W_IMPR+10}}|{'DIFF':^{W_DREV+W_DECPM+W_DIMPR+8}}|")
-                table_lines.append(f"|{SEP_AD+SEP_REV+SEP_ECPM+SEP_IMPR+SEP_REV+SEP_ECPM+SEP_IMPR+SEP_DREV+SEP_DECPM+SEP_DIMPR+('-'*9)}|")
-                table_lines.append(f"| {'':<{W_AD}} | {'Revenue':<{W_REV+1}} | {'eCPM':<{W_ECPM+1}} | {'Impr':<{W_IMPR}} | {'Revenue':<{W_REV+1}} | {'eCPM':<{W_ECPM+1}} | {'Impr':<{W_IMPR}} | {'Revenue':<{W_DREV}} | {'eCPM':<{W_DECPM}} | {'Impr':<{W_DIMPR}} |")
-                table_lines.append(f"|{SEP_AD}|{SEP_REV}|{SEP_ECPM}|{SEP_IMPR}|{SEP_REV}|{SEP_ECPM}|{SEP_IMPR}|{SEP_DREV}|{SEP_DECPM}|{SEP_DIMPR}|")
-                
-                for ad_type in ['Banner', 'Interstitial', 'Rewarded']:
-                    ad_key = ad_type.lower()
-                    ap_ad = ap_plat.get('ad_data', {}).get(ad_key, {'revenue': 0, 'ecpm': 0, 'impressions': 0})
-                    own_ad = own_plat.get('ad_data', {}).get(ad_key, {'revenue': 0, 'ecpm': 0, 'impressions': 0})
-                    
-                    # Calculate diffs for this ad type
-                    rev_diff = calc_diff_str(ap_ad.get('revenue', 0), own_ad.get('revenue', 0))
-                    ecpm_diff = calc_diff_str(ap_ad.get('ecpm', 0), own_ad.get('ecpm', 0))
-                    impr_diff = calc_diff_str(ap_ad.get('impressions', 0), own_ad.get('impressions', 0))
-                    
-                    table_lines.append(
-                        f"| {ad_type:<{W_AD}} "
-                        f"| ${ap_ad.get('revenue',0):>{W_REV},.2f} | ${ap_ad.get('ecpm',0):>{W_ECPM}.2f} | {ap_ad.get('impressions',0):>{W_IMPR},} "
-                        f"| ${own_ad.get('revenue',0):>{W_REV},.2f} | ${own_ad.get('ecpm',0):>{W_ECPM}.2f} | {own_ad.get('impressions',0):>{W_IMPR},} "
-                        f"| {rev_diff:>{W_DREV}} | {ecpm_diff:>{W_DECPM}} | {impr_diff:>{W_DIMPR}} |"
-                    )
-                
-                table_lines.append(f"|{SEP_AD}|{SEP_REV}|{SEP_ECPM}|{SEP_IMPR}|{SEP_REV}|{SEP_ECPM}|{SEP_IMPR}|{SEP_DREV}|{SEP_DECPM}|{SEP_DIMPR}|")
-                
-                # Calculate total diffs
-                ap_rev = ap_plat.get('revenue', 0)
-                own_rev = own_plat.get('revenue', 0)
-                ap_ecpm = ap_plat.get('ecpm', 0)
-                own_ecpm = own_plat.get('ecpm', 0)
-                ap_impr = ap_plat.get('impressions', 0)
-                own_impr = own_plat.get('impressions', 0)
-                
-                total_rev_diff = calc_diff_str(ap_rev, own_rev)
-                total_ecpm_diff = calc_diff_str(ap_ecpm, own_ecpm)
-                total_impr_diff = calc_diff_str(ap_impr, own_impr)
-                
+            # Get network icon
+            icon = network_icons.get(network_name.upper(), '📡')
+            
+            # Network section header
+            blocks.append({
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"{icon} *{network_name}*\n💰 MAX: ${network_max_rev:,.2f} → Network: ${network_net_rev:,.2f} ({rev_delta:+.1f}%)\n📈 Imps: {network_max_imps:,} → {network_net_imps:,} ({imp_delta:+.1f}%)"
+                }
+            })
+            
+            # Build table for this network
+            table_lines = []
+            table_lines.append(f"{'Application':<28} │ {'Ad Type':<12} │ {'MAX Imps':>10} │ {'Net Imps':>10} │ {'Imp Δ':>8} │ {'MAX Rev':>10} │ {'Net Rev':>10} │ {'Rev Δ':>8} │ {'MAX CPM':>8} │ {'Net CPM':>8} │ {'CPM Δ':>8}")
+            table_lines.append("─" * 155)
+            
+            for row in rows[:20]:  # Limit rows per network for Slack
                 table_lines.append(
-                    f"| {'TOTAL':<{W_AD}} "
-                    f"| ${ap_plat.get('revenue',0):>{W_REV},.2f} | ${ap_plat.get('ecpm',0):>{W_ECPM},.2f} | {ap_plat.get('impressions',0):>{W_IMPR},} "
-                    f"| ${own_plat.get('revenue',0):>{W_REV},.2f} | ${own_plat.get('ecpm',0):>{W_ECPM},.2f} | {own_plat.get('impressions',0):>{W_IMPR},} "
-                    f"| {total_rev_diff:>{W_DREV}} | {total_ecpm_diff:>{W_DECPM}} | {total_impr_diff:>{W_DIMPR}} |"
+                    f"{row['application']:<28} │ "
+                    f"{row['ad_type']:<12} │ "
+                    f"{row['max_impressions']:>10,} │ "
+                    f"{row['network_impressions']:>10,} │ "
+                    f"{row['imp_delta']:>8} │ "
+                    f"${row['max_revenue']:>9,.2f} │ "
+                    f"${row['network_revenue']:>9,.2f} │ "
+                    f"{row['rev_delta']:>8} │ "
+                    f"${row['max_ecpm']:>7,.2f} │ "
+                    f"${row['network_ecpm']:>7,.2f} │ "
+                    f"{row['cpm_delta']:>8}"
                 )
-                
-                table_text = "\n".join(table_lines)
-                
-                # Use rich_text block with preformatted text
-                blocks.append({
-                    "type": "rich_text",
-                    "elements": [
-                        {
-                            "type": "rich_text_preformatted",
-                            "elements": [
-                                {
-                                    "type": "text",
-                                    "text": table_text
-                                }
-                            ]
-                        }
-                    ]
-                })
             
+            table_text = "\n".join(table_lines)
+            
+            # Use rich_text block with preformatted text for proper alignment
+            blocks.append({
+                "type": "rich_text",
+                "elements": [
+                    {
+                        "type": "rich_text_preformatted",
+                        "elements": [
+                            {
+                                "type": "text",
+                                "text": table_text
+                            }
+                        ]
+                    }
+                ]
+            })
+            
+            # Add divider between networks
             blocks.append({"type": "divider"})
         
         payload = {"blocks": blocks}
@@ -551,17 +400,13 @@ class ValidationService:
         return self.notifier._send_to_slack(payload)
     
     def test_slack_integration(self) -> bool:
-        """Test Slack integration by sending a test message."""
+        """Test Slack integration."""
         if not self.notifier:
             print("Slack notifier not configured")
             return False
         
         print("Sending test message to Slack...")
         success = self.notifier.send_test_message()
-        
-        if success:
-            print("✅ Test message sent successfully")
-        else:
-            print("❌ Failed to send test message")
-        
+        print("✅ Test message sent" if success else "❌ Failed")
         return success
+

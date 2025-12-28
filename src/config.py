@@ -3,7 +3,7 @@ Configuration loader for the Network Data Validation System.
 """
 import yaml
 import os
-from typing import Dict, Any
+from typing import Dict, Any, List
 
 
 class Config:
@@ -52,26 +52,47 @@ class Config:
         
         return value
     
-    def get_adjust_config(self) -> Dict[str, str]:
-        """Get Adjust API configuration."""
-        return self.config.get('adjust', {})
-    
-    def get_applovin_config(self) -> Dict[str, str]:
+    def get_applovin_config(self) -> Dict[str, Any]:
         """Get Applovin API configuration."""
         return self.config.get('applovin', {})
-    
-    def get_mintegral_config(self) -> Dict[str, str]:
-        """Get Mintegral API configuration."""
-        return self.config.get('mintegral', {})
     
     def get_slack_config(self) -> Dict[str, str]:
         """Get Slack configuration."""
         return self.config.get('slack', {})
     
     def get_validation_config(self) -> Dict[str, Any]:
-        """Get validation settings."""
+        """Get validation/report settings."""
         return self.config.get('validation', {})
     
     def get_scheduling_config(self) -> Dict[str, Any]:
         """Get scheduling settings."""
         return self.config.get('scheduling', {})
+    
+    def get_networks_config(self) -> Dict[str, Any]:
+        """Get all networks configuration."""
+        return self.config.get('networks', {})
+    
+    def get_enabled_networks(self) -> List[str]:
+        """Get list of enabled network names."""
+        networks = self.get_networks_config()
+        return [name for name, cfg in networks.items() if cfg.get('enabled', False)]
+    
+    def get_mintegral_config(self) -> Dict[str, Any]:
+        """Get Mintegral API configuration."""
+        return self.config.get('networks', {}).get('mintegral', {})
+    
+    def get_unity_config(self) -> Dict[str, Any]:
+        """Get Unity Ads API configuration."""
+        return self.config.get('networks', {}).get('unity', {})
+    
+    def get_admob_config(self) -> Dict[str, Any]:
+        """Get Google AdMob API configuration."""
+        return self.config.get('networks', {}).get('admob', {})
+    
+    def get_ironsource_config(self) -> Dict[str, Any]:
+        """Get IronSource API configuration."""
+        return self.config.get('networks', {}).get('ironsource', {})
+    
+    def get_meta_config(self) -> Dict[str, Any]:
+        """Get Meta Audience Network API configuration."""
+        return self.config.get('networks', {}).get('meta', {})

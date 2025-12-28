@@ -13,10 +13,10 @@ class MintegralFetcher(NetworkDataFetcher):
     """Fetcher for Mintegral network data."""
     
     # Ad format mapping - Mintegral ad_format values to our categories
+    # Note: Using only interstitial_video (not new_interstitial) to match MAX reporting
     AD_FORMAT_MAP = {
         'rewarded_video': 'rewarded',
         'interstitial_video': 'interstitial',
-        'new_interstitial': 'interstitial',
         'sdk_banner': 'banner',
     }
     

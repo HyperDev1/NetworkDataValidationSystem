@@ -14,6 +14,29 @@ mintegral:
   secret: "YOUR_MINTEGRAL_SECRET"
   app_id: ""  # Optional: Leave empty to get all apps
 
+# Unity Ads Configuration
+# Docs: https://docs.unity.com/en-us/grow/ads/optimization/monetization-stats-api
+unity_ads:
+  api_key: "YOUR_UNITY_ADS_API_KEY"  # Unity Ads Monetization Stats API Key
+  organization_id: "YOUR_ORGANIZATION_ID"  # Unity organization ID
+  game_ids: ""  # Optional: Comma-separated game IDs to filter
+  use_mock: true  # Set to false to use real API data
+
+# Google AdMob Configuration
+# Docs: https://developers.google.com/admob/api/v1/reference/rest
+admob:
+  enabled: false
+  service_account_json_path: "credentials/admob-service-account.json"  # Path to Google Service Account JSON key
+  publisher_id: "pub-XXXXXXXXXXXXXXXX"  # Your AdMob Publisher ID
+  app_ids: ""  # Optional: Comma-separated AdMob app IDs to filter
+
+# Meta Audience Network Configuration
+# Docs: https://developers.facebook.com/docs/audience-network/optimization/report-api/guide-v2/
+meta:
+  enabled: false
+  access_token: "YOUR_SYSTEM_USER_TOKEN"  # Meta System User Access Token from Business Manager
+  business_id: "YOUR_BUSINESS_ID"  # Meta Business ID from Business Manager
+
 # Add other networks as needed
 # ironsource:
 #   secret_key: "YOUR_SECRET_KEY"

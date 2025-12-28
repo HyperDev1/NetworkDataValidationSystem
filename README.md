@@ -112,6 +112,45 @@ python main.py --help
 
 - **Adjust**: Requires `api_token` and `app_token`
 - **Applovin Max**: Requires `api_key` and `package_name`
+- **Mintegral**: Requires `skey`, `secret`, and optional `app_ids`
+- **Unity Ads**: Requires `api_key`, `organization_id`, and optional `game_ids`
+- **Google AdMob**: Requires `service_account_json_path` and `publisher_id` (see AdMob Setup below)
+
+### AdMob Setup
+
+1. **Enable AdMob API in Google Cloud Console:**
+   - Go to [Google Cloud Console](https://console.cloud.google.com)
+   - Select or create a project
+   - Navigate to APIs & Services → Library
+   - Search for "AdMob API" and enable it
+
+2. **Create Service Account:**
+   - Go to IAM & Admin → Service Accounts
+   - Click "Create Service Account"
+   - Enter a name (e.g., "admob-reporter")
+   - Click "Create and Continue"
+   - Skip role assignment (not needed for AdMob)
+   - Click "Done"
+   - Click on the created service account
+   - Go to "Keys" tab → Add Key → Create new key → JSON
+   - Download the JSON file to `credentials/admob-service-account.json`
+
+3. **Grant AdMob Access:**
+   - Go to [AdMob Console](https://apps.admob.com)
+   - Navigate to Settings → Access & Authorization → Users
+   - Click "Invite new user"
+   - Enter the Service Account email (from JSON file: `client_email`)
+   - Select appropriate role and send invitation
+
+4. **Configure in config.yaml:**
+   ```yaml
+   networks:
+     admob:
+       enabled: true
+       service_account_json_path: "credentials/admob-service-account.json"
+       publisher_id: "pub-XXXXXXXXXXXXXXXX"
+       app_ids: ""  # Optional: comma-separated AdMob app IDs
+   ```
 
 ### Validation Settings
 

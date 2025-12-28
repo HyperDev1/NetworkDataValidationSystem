@@ -2,10 +2,17 @@
 Fetchers package initialization.
 """
 from .base_fetcher import NetworkDataFetcher
-from .adjust_fetcher import AdjustFetcher
 from .applovin_fetcher import ApplovinFetcher
-from .mock_adjust_fetcher import MockAdjustFetcher
 from .mintegral_fetcher import MintegralFetcher
-from .mock_mintegral_fetcher import MockMintegralFetcher
+from .unity_fetcher import UnityAdsFetcher
+from .admob_fetcher import AdmobFetcher
+from .meta_fetcher import MetaFetcher
 
-__all__ = ['NetworkDataFetcher', 'AdjustFetcher', 'ApplovinFetcher', 'MockAdjustFetcher', 'MintegralFetcher', 'MockMintegralFetcher']
+__all__ = [
+    'NetworkDataFetcher',
+    'ApplovinFetcher',
+    'MintegralFetcher',
+    'UnityAdsFetcher',
+    'AdmobFetcher',
+    'MetaFetcher',
+]

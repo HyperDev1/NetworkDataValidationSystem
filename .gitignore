@@ -1,1 +1,25 @@
 /.idea/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+.venv/
+ENV/
+
+# Credentials (NEVER commit these)
+credentials/
+*.json
+!config.yaml.example
+
+# Config with secrets
+config.yaml
+
+# Output files
+*.txt
+!README.md
+
+

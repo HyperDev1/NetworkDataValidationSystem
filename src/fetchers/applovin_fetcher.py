@@ -1,18 +1,18 @@
 """
-Applovin Max data fetcher implementation.
-Fetches both total data and per-network breakdown for mediation comparison.
+AppLovin Max Network Comparison data fetcher implementation.
+Fetches both MAX data and Network's own reported data for comparison.
+Uses AppLovin Network Comparison Reporting API.
 """
 import requests
 from datetime import datetime
-from typing import Dict, Any, List
+from typing import Dict, Any
 from .base_fetcher import NetworkDataFetcher
 
 
 class ApplovinFetcher(NetworkDataFetcher):
-    """Fetcher for Applovin Max network data with mediation network breakdown."""
+    """Fetcher for AppLovin Max Network Comparison data."""
     
     # Ad format mapping
-    AD_FORMATS = ['BANNER', 'INTER', 'REWARDED']
     AD_FORMAT_NAMES = {
         'BANNER': 'Banner',
         'INTER': 'Interstitial', 
@@ -30,50 +30,96 @@ class ApplovinFetcher(NetworkDataFetcher):
         'UNITY_ADS': 'Unity Ads',
         'IRONSOURCE': 'IronSource',
         'VUNGLE': 'Vungle',
+        'LIFTOFF': 'Liftoff',
         'CHARTBOOST': 'Chartboost',
         'INMOBI': 'InMobi',
         'PANGLE': 'Pangle',
         'BYTEDANCE': 'Pangle',
-        'ADJUST': 'Adjust',
-        'APPSFLYER': 'AppsFlyer',
+        'MOBILEFUSE': 'MobileFuse',
+        'VERVE': 'Verve',
+        'YANDEX': 'Yandex',
+        'GOOGLE_AD_MANAGER': 'Google Ad Manager',
+        'HYPRMX': 'HyprMX',
+        'MOLOCO': 'Moloco',
+        'OGURY': 'Ogury',
+        'SMAATO': 'Smaato',
+        'SNAP': 'Snap',
+        'TIKTOK': 'TikTok',
     }
     
-    def __init__(self, api_key: str, applications: str):
+    # Application name mapping (package name to display name)
+    APP_NAME_MAP = {
+        'com.hyperlab.clearandshoot': 'Clear And Shoot',
+        'id1670670715': 'Clear And Shoot',
+    }
+    
+    def __init__(self, api_key: str, applications: list = None):
         """
         Initialize Applovin fetcher.
         
         Args:
             api_key: Applovin API key
-            applications: Comma-separated app package names (android,ios)
+            applications: List of application configs with app_name, display_name, platform
         """
         self.api_key = api_key
-        self.applications = applications  # e.g. "com.Hyperlab.ClearAndShoot,id1670670715"
+        self.applications = applications or []
         self.base_url = "https://r.applovin.com/maxReport"
+        
+        # Build lookup maps from applications config
+        self._app_name_to_display = {}
+        self._allowed_app_names = set()
+        
+        for app in self.applications:
+            app_name = app.get('app_name', '').strip()
+            display = app.get('display_name', '')
+            platform = app.get('platform', '')
+            
+            if app_name:
+                # Store both original and lowercase for case-insensitive matching
+                self._allowed_app_names.add(app_name.lower())
+                self._app_name_to_display[app_name.lower()] = {
+                    'display_name': display,
+                    'platform': platform
+                }
     
     def _detect_platform(self, row: Dict[str, Any]) -> str:
         """Detect platform (android/ios) from API row."""
         platform_val = str(row.get('platform', row.get('os', ''))).lower()
         
-        # Debug - print first few rows to see platform values
-        if not hasattr(self, '_debug_count'):
-            self._debug_count = 0
-        if self._debug_count < 5:
-            print(f"      [DEBUG] Row: platform={row.get('platform')}, application={row.get('application')}")
-            self._debug_count += 1
-        
         if 'android' in platform_val:
-            return 'android'
+            return 'Android'
         if 'ios' in platform_val or 'iphone' in platform_val or 'ipad' in platform_val:
-            return 'ios'
+            return 'iOS'
         
         # Fallback: detect from application field
         app = str(row.get('application', row.get('package_name', ''))).lower()
         if app.startswith('id') and app[2:].isdigit():
-            return 'ios'
+            return 'iOS'
         if 'ios' in app:
-            return 'ios'
+            return 'iOS'
         
-        return 'android'
+        return 'Android'
+    
+    def _get_app_display_name(self, app_name: str, platform: str) -> str:
+        """Get display name for application with platform."""
+        app_name_lower = app_name.lower().strip()
+        
+        # First check config-based lookup
+        if app_name_lower in self._app_name_to_display:
+            config = self._app_name_to_display[app_name_lower]
+            return f"{config['display_name']} ({config['platform']})"
+        
+        # Fallback: clean up the app name
+        # Remove platform suffixes like "DRD", "IOS" 
+        clean_name = app_name.replace(' DRD', '').replace(' IOS', '').replace(' ios', '').strip()
+        
+        return f"{clean_name} ({platform})"
+    
+    def _is_allowed_app(self, app_name: str) -> bool:
+        """Check if app is in allowed list."""
+        if not self._allowed_app_names:
+            return True  # No filter, allow all
+        return app_name.lower().strip() in self._allowed_app_names
     
     def _normalize_network_name(self, network: str) -> str:
         """Normalize network name to standard format."""
@@ -81,8 +127,12 @@ class ApplovinFetcher(NetworkDataFetcher):
             return 'Unknown'
         
         # Remove common suffixes
-        network_clean = network.replace('_Bidding', '').replace('_Network', '').replace('_Exchange', '')
-        network_upper = network_clean.upper().strip()
+        network_clean = network.replace('_Bidding', '').replace(' Bidding', '')
+        network_clean = network_clean.replace('_Network', '').replace(' Network', '')
+        network_clean = network_clean.replace('_Exchange', '').replace(' Exchange', '')
+        network_clean = network_clean.strip()
+        
+        network_upper = network_clean.upper()
         
         # Direct mapping
         if network_upper in self.NETWORK_NAME_MAP:
@@ -100,206 +150,188 @@ class ApplovinFetcher(NetworkDataFetcher):
             ad_format_up = str(ad_format).upper()
         
         if 'BANNER' in ad_format_up:
-            return 'banner'
+            return 'Banner'
         elif 'INTER' in ad_format_up or 'INTERSTITIAL' in ad_format_up:
-            return 'interstitial'
+            return 'Interstitial'
         elif 'REWARD' in ad_format_up or 'REWARDED' in ad_format_up:
-            return 'rewarded'
+            return 'Rewarded'
         else:
-            inferred = str(row.get('placement_type', '')).lower()
-            if 'banner' in inferred:
-                return 'banner'
-            elif 'reward' in inferred:
-                return 'rewarded'
-            return 'interstitial'
+            return 'Other'
     
-    def _init_platform_data(self) -> Dict[str, Any]:
-        """Initialize empty platform data structure."""
-        ad_types = ['banner', 'interstitial', 'rewarded']
-        return {
-            'android': {
-                'ad_data': {k: {'revenue': 0.0, 'impressions': 0, 'ecpm': 0.0} for k in ad_types},
-                'revenue': 0.0, 'impressions': 0, 'ecpm': 0.0
-            },
-            'ios': {
-                'ad_data': {k: {'revenue': 0.0, 'impressions': 0, 'ecpm': 0.0} for k in ad_types},
-                'revenue': 0.0, 'impressions': 0, 'ecpm': 0.0
-            }
-        }
-    
-    def _calculate_ecpm(self, data: Dict[str, Any]):
-        """Calculate eCPM values in place."""
-        # Ad data eCPM
-        if 'ad_data' in data:
-            for key in data['ad_data']:
-                imp = data['ad_data'][key]['impressions']
-                rev = data['ad_data'][key]['revenue']
-                data['ad_data'][key]['ecpm'] = round((rev / imp * 1000) if imp > 0 else 0.0, 2)
-                data['ad_data'][key]['revenue'] = round(rev, 2)
+    def _calculate_delta(self, max_val: float, network_val: float) -> str:
+        """Calculate delta percentage between MAX and Network values."""
+        if max_val == 0 and network_val == 0:
+            return "0.0%"
+        elif max_val == 0:
+            return "+∞%"
         
-        # Platform data eCPM
-        if 'platform_data' in data:
-            for plat in data['platform_data']:
-                plat_data = data['platform_data'][plat]
-                plat_imp = plat_data['impressions']
-                plat_rev = plat_data['revenue']
-                plat_data['ecpm'] = round((plat_rev / plat_imp * 1000) if plat_imp > 0 else 0.0, 2)
-                plat_data['revenue'] = round(plat_rev, 2)
-                
-                for key in plat_data.get('ad_data', {}):
-                    aimp = plat_data['ad_data'][key]['impressions']
-                    arev = plat_data['ad_data'][key]['revenue']
-                    plat_data['ad_data'][key]['ecpm'] = round((arev / aimp * 1000) if aimp > 0 else 0.0, 2)
-                    plat_data['ad_data'][key]['revenue'] = round(arev, 2)
+        delta = ((network_val - max_val) / max_val) * 100
+        sign = "+" if delta > 0 else ""
+        return f"{sign}{delta:.1f}%"
     
     def fetch_data(self, start_date: datetime, end_date: datetime) -> Dict[str, Any]:
         """
-        Fetch data from Applovin Max API with network breakdown.
+        Fetch Network Comparison data from AppLovin Max API.
         
         Returns:
-            Dictionary containing total data + network_breakdown for each mediation network
+            Dictionary containing comparison rows for each application/network/ad_type
         """
-        # Reset debug counter
-        self._debug_count = 0
+        print(f"      [INFO] Fetching Network Comparison data...")
         
-        print(f"      [DEBUG] Fetching for applications: {self.applications}")
-        
-        # Columns must include platform to separate android/ios data
-        column_variants = [
-            "day,application,platform,network,ad_format,estimated_revenue,impressions",
-            "day,application,platform,ad_format,estimated_revenue,impressions",
-            "day,application,platform,estimated_revenue,impressions",
+        # First, try to fetch with Network Comparison columns
+        # AppLovin Network Comparison uses: third_party_revenue, third_party_impressions, third_party_ecpm
+        column_sets = [
+            # Network Comparison columns (third party = network's own reported data)
+            "day,application,platform,network,ad_format,estimated_revenue,impressions,ecpm,third_party_estimated_revenue,third_party_impressions,third_party_ecpm",
+            # Alternative naming
+            "day,application,platform,network,ad_format,estimated_revenue,impressions,ecpm,network_estimated_revenue,network_impressions",
+            # Fallback to basic columns (MAX data only)
+            "day,application,platform,network,ad_format,estimated_revenue,impressions,ecpm",
         ]
-
-        data = None
-        has_network_data = False
-        last_exception = None
         
-        for cols in column_variants:
+        data = None
+        used_columns = None
+        
+        for columns in column_sets:
             params = {
                 "api_key": self.api_key,
                 "start": start_date.strftime("%Y-%m-%d"),
                 "end": end_date.strftime("%Y-%m-%d"),
-                "columns": cols,
+                "columns": columns,
                 "format": "json",
-                "package_name": "com.Hyperlab.ClearAndShoot",  # Comma-separated package names
                 "platform": "android,ios",
                 "report_timezone": "UTC"
             }
 
             try:
                 response = requests.get(self.base_url, params=params, timeout=30)
-                print(f"      [DEBUG] API URL: {response.url[:200]}...")
-                if response.status_code >= 400 and response.status_code < 500:
-                    last_exception = Exception(f"Applovin returned {response.status_code}: {response.text[:200]}")
+                print(f"      [INFO] API Status: {response.status_code} (columns: {columns[:50]}...)")
+                
+                if response.status_code >= 400:
+                    print(f"      [WARN] Column set failed: {response.text[:100]}")
                     continue
-                response.raise_for_status()
+                    
                 data = response.json()
-                if not data or (not data.get('results') and not data.get('data') and not data.get('rows')):
-                    last_exception = Exception(f"Applovin returned unexpected payload")
-                    data = None
-                    continue
-                # Check if we got network data
-                has_network_data = 'network' in cols
-                print(f"      [DEBUG] Got {len(data.get('results', data.get('data', data.get('rows', []))))} rows")
-                break
-            except requests.exceptions.RequestException as e:
-                last_exception = e
-                data = None
+                if data and (data.get('results') or data.get('data') or data.get('rows')):
+                    used_columns = columns
+                    break
+            except Exception as e:
+                print(f"      [WARN] Request failed: {str(e)}")
                 continue
-
-        if data is None:
-            raise Exception(f"Failed to fetch data from Applovin Max: {str(last_exception)}")
-
-        # Initialize structures
-        ad_data = {
-            'banner': {'revenue': 0.0, 'impressions': 0, 'ecpm': 0.0},
-            'interstitial': {'revenue': 0.0, 'impressions': 0, 'ecpm': 0.0},
-            'rewarded': {'revenue': 0.0, 'impressions': 0, 'ecpm': 0.0}
-        }
-        platform_data = self._init_platform_data()
-        network_breakdown = {}  # Per-network data as seen in Applovin
         
-        total_revenue = 0.0
-        total_impressions = 0
+        if data is None:
+            raise Exception("Failed to fetch data from AppLovin Max API - all column sets failed")
 
         rows = data.get('results') or data.get('data') or data.get('rows') or []
+        print(f"      [INFO] Retrieved {len(rows)} rows using columns: {used_columns[:60]}...")
+        
+        # Check if we have network comparison data
+        has_network_data = used_columns and ('third_party' in used_columns or 'network_estimated' in used_columns)
+        print(f"      [INFO] Network comparison data available: {has_network_data}")
+        
+        # Structure for aggregation: {(application_display, network, ad_type): comparison_data}
+        aggregated = {}
+        
+        # Totals
+        totals = {
+            'max_revenue': 0.0,
+            'network_revenue': 0.0,
+            'max_impressions': 0,
+            'network_impressions': 0
+        }
         
         for row in rows:
-            try:
-                revenue = float(row.get('estimated_revenue', row.get('revenue', 0)))
-            except (TypeError, ValueError):
-                revenue = 0.0
-            try:
-                impressions = int(row.get('impressions', row.get('impression', 0)))
-            except (TypeError, ValueError):
-                impressions = 0
-
+            app_name = row.get('application', row.get('package_name', 'Unknown'))
+            
+            # Filter by allowed apps
+            if not self._is_allowed_app(app_name):
+                continue
+            
             platform = self._detect_platform(row)
-            ad_type = self._detect_ad_type(row)
+            application = self._get_app_display_name(app_name, platform)
             network = self._normalize_network_name(row.get('network', ''))
-
-            # Accumulate totals
-            total_revenue += revenue
-            total_impressions += impressions
+            ad_type = self._detect_ad_type(row)
             
-            # Accumulate by ad type
-            ad_data[ad_type]['revenue'] += revenue
-            ad_data[ad_type]['impressions'] += impressions
+            if network == 'Unknown' or ad_type == 'Other':
+                continue
             
-            # Accumulate by platform
-            platform_data[platform]['ad_data'][ad_type]['revenue'] += revenue
-            platform_data[platform]['ad_data'][ad_type]['impressions'] += impressions
-            platform_data[platform]['revenue'] += revenue
-            platform_data[platform]['impressions'] += impressions
-            
-            # Accumulate by network (for mediation comparison)
-            if has_network_data and network and network != 'Unknown':
-                if network not in network_breakdown:
-                    network_breakdown[network] = {
-                        'revenue': 0.0,
-                        'impressions': 0,
-                        'ecpm': 0.0,
-                        'ad_data': {k: {'revenue': 0.0, 'impressions': 0, 'ecpm': 0.0} for k in ad_data},
-                        'platform_data': self._init_platform_data()
-                    }
+            # Parse values - MAX data
+            try:
+                max_revenue = float(row.get('estimated_revenue', 0) or 0)
+                max_impressions = int(row.get('impressions', 0) or 0)
                 
-                nb = network_breakdown[network]
-                nb['revenue'] += revenue
-                nb['impressions'] += impressions
-                nb['ad_data'][ad_type]['revenue'] += revenue
-                nb['ad_data'][ad_type]['impressions'] += impressions
-                nb['platform_data'][platform]['revenue'] += revenue
-                nb['platform_data'][platform]['impressions'] += impressions
-                nb['platform_data'][platform]['ad_data'][ad_type]['revenue'] += revenue
-                nb['platform_data'][platform]['ad_data'][ad_type]['impressions'] += impressions
-
-        # Calculate eCPMs
-        result = {
-            'revenue': round(total_revenue, 2),
-            'impressions': total_impressions,
-            'ecpm': round((total_revenue / total_impressions * 1000) if total_impressions > 0 else 0.0, 2),
-            'ad_data': ad_data,
-            'platform_data': platform_data,
+                # Network data - try different column names
+                network_revenue = float(
+                    row.get('third_party_estimated_revenue') or 
+                    row.get('network_estimated_revenue') or 
+                    row.get('estimated_revenue', 0) or 0
+                )
+                network_impressions = int(
+                    row.get('third_party_impressions') or 
+                    row.get('network_impressions') or 
+                    row.get('impressions', 0) or 0
+                )
+            except (TypeError, ValueError):
+                continue
+            
+            # Create key for aggregation
+            key = (application, network, ad_type)
+            
+            if key not in aggregated:
+                aggregated[key] = {
+                    'application': application,
+                    'network': network,
+                    'ad_type': ad_type,
+                    'max_impressions': 0,
+                    'network_impressions': 0,
+                    'max_revenue': 0.0,
+                    'network_revenue': 0.0,
+                }
+            
+            # Accumulate data
+            aggregated[key]['max_revenue'] += max_revenue
+            aggregated[key]['max_impressions'] += max_impressions
+            aggregated[key]['network_revenue'] += network_revenue
+            aggregated[key]['network_impressions'] += network_impressions
+            
+            # Accumulate totals
+            totals['max_revenue'] += max_revenue
+            totals['network_revenue'] += network_revenue
+            totals['max_impressions'] += max_impressions
+            totals['network_impressions'] += network_impressions
+        
+        # Convert to list and calculate eCPMs and deltas
+        comparison_rows = []
+        for key, cd in aggregated.items():
+            # Calculate eCPMs
+            cd['max_ecpm'] = round((cd['max_revenue'] / cd['max_impressions'] * 1000) if cd['max_impressions'] > 0 else 0, 2)
+            cd['network_ecpm'] = round((cd['network_revenue'] / cd['network_impressions'] * 1000) if cd['network_impressions'] > 0 else 0, 2)
+            
+            # Round revenues
+            cd['max_revenue'] = round(cd['max_revenue'], 2)
+            cd['network_revenue'] = round(cd['network_revenue'], 2)
+            
+            # Calculate deltas
+            cd['imp_delta'] = self._calculate_delta(cd['max_impressions'], cd['network_impressions'])
+            cd['rev_delta'] = self._calculate_delta(cd['max_revenue'], cd['network_revenue'])
+            cd['cpm_delta'] = self._calculate_delta(cd['max_ecpm'], cd['network_ecpm'])
+            
+            comparison_rows.append(cd)
+        
+        # Sort by application, then network, then ad_type
+        comparison_rows.sort(key=lambda x: (x['application'], x['network'], x['ad_type']))
+        
+        return {
+            'comparison_rows': comparison_rows,
+            'totals': totals,
             'network': self.get_network_name(),
             'date_range': {
                 'start': start_date.strftime("%Y-%m-%d"),
                 'end': end_date.strftime("%Y-%m-%d")
-            },
-            'network_breakdown': network_breakdown
+            }
         }
-        
-        self._calculate_ecpm(result)
-        
-        # Calculate eCPM for each network in breakdown
-        for net_name, net_data in network_breakdown.items():
-            net_data['ecpm'] = round((net_data['revenue'] / net_data['impressions'] * 1000) if net_data['impressions'] > 0 else 0.0, 2)
-            net_data['revenue'] = round(net_data['revenue'], 2)
-            self._calculate_ecpm(net_data)
-        
-        return result
 
     def get_network_name(self) -> str:
         """Return the network name."""
-        return "Applovin Max"
+        return "AppLovin Max"
 
