@@ -105,3 +105,7 @@ class Config:
         """Get Moloco API configuration."""
         return self.config.get('networks', {}).get('moloco', {})
 
+    def get_bidmachine_config(self) -> Dict[str, Any]:
+        """Get BidMachine SSP API configuration."""
+        return self.config.get('networks', {}).get('bidmachine', {})
+

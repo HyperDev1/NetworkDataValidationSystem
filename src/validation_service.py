@@ -5,7 +5,7 @@ Compares AppLovin MAX data with individual network data.
 from datetime import datetime, timedelta
 from typing import Dict, Any, List
 from src.config import Config
-from src.fetchers import ApplovinFetcher, MintegralFetcher, UnityAdsFetcher, AdmobFetcher, MetaFetcher, MolocoFetcher, IronSourceFetcher, InMobiFetcher
+from src.fetchers import ApplovinFetcher, MintegralFetcher, UnityAdsFetcher, AdmobFetcher, MetaFetcher, MolocoFetcher, IronSourceFetcher, InMobiFetcher, BidMachineFetcher
 from src.notifiers import SlackNotifier
 
 
@@ -34,6 +34,8 @@ class ValidationService:
         'MOLOCO': 'moloco',
         'INMOBI_BIDDING': 'inmobi',
         'INMOBI': 'inmobi',
+        'BIDMACHINE_BIDDING': 'bidmachine',
+        'BIDMACHINE': 'bidmachine',
     }
     
     def __init__(self, config: Config):
@@ -162,6 +164,19 @@ class ValidationService:
                 print(f"   ✅ InMobi fetcher initialized")
             except Exception as e:
                 print(f"   ⚠️ InMobi fetcher skipped: {str(e)}")
+        
+        # BidMachine
+        bidmachine_config = self.config.get_bidmachine_config()
+        if bidmachine_config.get('enabled') and bidmachine_config.get('username'):
+            try:
+                self.network_fetchers['bidmachine'] = BidMachineFetcher(
+                    username=bidmachine_config['username'],
+                    password=bidmachine_config['password'],
+                    app_bundle_ids=bidmachine_config.get('app_bundle_ids'),
+                )
+                print(f"   ✅ BidMachine fetcher initialized")
+            except Exception as e:
+                print(f"   ⚠️ BidMachine fetcher skipped: {str(e)}")
     
     def run_validation(self) -> Dict[str, Any]:
         """Run network comparison report."""
