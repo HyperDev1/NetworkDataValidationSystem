@@ -47,6 +47,14 @@ moloco:
   app_bundle_ids: ""  # Optional: comma-separated app bundle IDs to filter
   time_zone: "UTC"  # Timezone for data aggregation (default: UTC)
 
+# BidMachine SSP Configuration
+# Docs: https://docs.bidmachine.io/docs/reporting-api
+bidmachine:
+  enabled: false
+  username: "YOUR_BIDMACHINE_USERNAME"  # BidMachine SSP account username
+  password: "YOUR_BIDMACHINE_PASSWORD"  # BidMachine SSP account password
+  app_bundle_ids: ""  # Optional: comma-separated app bundle IDs to filter (e.g., "com.example.app,1234567890")
+
 # Add other networks as needed
 # ironsource:
 #   secret_key: "YOUR_SECRET_KEY"
