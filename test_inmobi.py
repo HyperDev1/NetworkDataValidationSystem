@@ -69,9 +69,12 @@ def test_inmobi_fetcher():
         fetcher = InMobiFetcher(
             account_id=account_id,
             secret_key=secret_key,
-            username=username
+            username=username,
+            app_ids=inmobi_config.get('app_ids')
         )
         print(f"   Network name: {fetcher.get_network_name()}")
+        if fetcher.app_ids:
+            print(f"   Filtering by app IDs: {fetcher.app_ids}")
     except Exception as e:
         print(f"   [ERROR] Failed to initialize fetcher: {str(e)}")
         import traceback
@@ -80,7 +83,7 @@ def test_inmobi_fetcher():
     
     # InMobi typically has 1-2 day reporting delay
     now_utc = datetime.now(timezone.utc)
-    inmobi_delay_days = 2
+    inmobi_delay_days = 1
     end_date = now_utc.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=inmobi_delay_days)
     start_date = end_date
     
