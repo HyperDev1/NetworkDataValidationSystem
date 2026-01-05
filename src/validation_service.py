@@ -5,7 +5,7 @@ Compares AppLovin MAX data with individual network data.
 from datetime import datetime, timedelta
 from typing import Dict, Any, List
 from src.config import Config
-from src.fetchers import ApplovinFetcher, MintegralFetcher, UnityAdsFetcher, AdmobFetcher, MetaFetcher, MolocoFetcher, IronSourceFetcher
+from src.fetchers import ApplovinFetcher, MintegralFetcher, UnityAdsFetcher, AdmobFetcher, MetaFetcher, MolocoFetcher, IronSourceFetcher, InMobiFetcher
 from src.notifiers import SlackNotifier
 
 
@@ -32,6 +32,8 @@ class ValidationService:
         'META': 'meta',
         'MOLOCO_BIDDING': 'moloco',
         'MOLOCO': 'moloco',
+        'INMOBI_BIDDING': 'inmobi',
+        'INMOBI': 'inmobi',
     }
     
     def __init__(self, config: Config):
@@ -146,6 +148,20 @@ class ValidationService:
                 print(f"   ✅ IronSource fetcher initialized")
             except Exception as e:
                 print(f"   ⚠️ IronSource fetcher skipped: {str(e)}")
+        
+        # InMobi
+        inmobi_config = self.config.get_inmobi_config()
+        if inmobi_config.get('enabled') and inmobi_config.get('secret_key'):
+            try:
+                self.network_fetchers['inmobi'] = InMobiFetcher(
+                    account_id=inmobi_config['account_id'],
+                    secret_key=inmobi_config['secret_key'],
+                    username=inmobi_config.get('username'),
+                    app_ids=inmobi_config.get('app_ids')
+                )
+                print(f"   ✅ InMobi fetcher initialized")
+            except Exception as e:
+                print(f"   ⚠️ InMobi fetcher skipped: {str(e)}")
     
     def run_validation(self) -> Dict[str, Any]:
         """Run network comparison report."""

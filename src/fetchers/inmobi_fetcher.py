@@ -13,8 +13,8 @@ class InMobiFetcher(NetworkDataFetcher):
     """Fetcher for InMobi monetization data using Publisher Reporting API."""
     
     # InMobi API URLs
-    # Updated based on documentation: https://support.inmobi.com/monetize/inmobi-apis/reporting-api
-    SESSION_URL = "https://api.inmobi.com/v1.1/generatesession/generate"
+    # Updated based on InMobi team recommendation (v1.0 for session generation)
+    SESSION_URL = "https://api.inmobi.com/v1.0/generatesession/generate"
     REPORTING_URL = "https://api.inmobi.com/v3.0/reporting/publisher"
     
     # Ad format mapping - InMobi ad types to our standard categories
@@ -37,7 +37,8 @@ class InMobiFetcher(NetworkDataFetcher):
         self,
         account_id: str,
         secret_key: str,
-        username: Optional[str] = None
+        username: Optional[str] = None,
+        app_ids: Optional[str] = None
     ):
         """
         Initialize InMobi fetcher.
@@ -46,10 +47,12 @@ class InMobiFetcher(NetworkDataFetcher):
             account_id: InMobi Account ID (found in InMobi dashboard)
             secret_key: InMobi Secret Key (from Account Settings > API Key)
             username: InMobi login email (used for session generation userName header)
+            app_ids: Comma-separated InMobi App IDs to filter (optional)
         """
         self.account_id = account_id
         self.secret_key = secret_key
         self.username = username or account_id  # Use email if provided, otherwise account_id
+        self.app_ids = [p.strip() for p in app_ids.split(',') if p.strip()] if app_ids else []
         self.session_id = None
     
     def _generate_session(self) -> str:
@@ -80,8 +83,8 @@ class InMobiFetcher(NetworkDataFetcher):
         print(f"      [DEBUG] secretKey: {self.secret_key[:20]}...")
         
         try:
-            # POST request with credentials in headers
-            response = requests.post(
+            # GET request with credentials in headers (as per InMobi team recommendation)
+            response = requests.get(
                 self.SESSION_URL,
                 headers=headers,
                 timeout=30,
@@ -97,12 +100,17 @@ class InMobiFetcher(NetworkDataFetcher):
             
             # Check for error in response
             if data.get("error"):
-                error_list = data.get("errorList", [])
-                error_msg = ", ".join([e.get("message", str(e)) for e in error_list])
+                error_list = data.get("errorList", []) or data.get("errors", [])
+                error_msg = ", ".join([e.get("message", e.get("reason", str(e))) for e in error_list])
                 raise ValueError(f"InMobi session error: {error_msg}")
             
             # Get session ID from response
-            self.session_id = data.get("sessionId") or data.get("respList", {}).get("sessionId")
+            # Response format: {"respList":[{"sessionId":"...","accountId":"..."}],"error":false}
+            resp_list = data.get("respList", [])
+            if resp_list and len(resp_list) > 0:
+                self.session_id = resp_list[0].get("sessionId")
+            else:
+                self.session_id = data.get("sessionId")
             
             if not self.session_id:
                 raise ValueError(f"Session ID not found in response: {data}")
@@ -211,29 +219,44 @@ class InMobiFetcher(NetworkDataFetcher):
                 "Content-Type": "application/json",
                 "Accept": "application/json",
                 "accountId": self.account_id,
-                "sessionId": session_id
+                "sessionId": session_id,
+                "secretKey": self.secret_key  # Required for reporting API
             }
             
             # API request body according to InMobi documentation
+            # Ref: https://support.inmobi.com/monetize/inmobi-apis/reporting-api
+            # timeFrame format: "yyyy-MM-dd:yyyy-MM-dd" (startDate:endDate)
+            time_frame = f"{start_date.strftime('%Y-%m-%d')}:{end_date.strftime('%Y-%m-%d')}"
+            
+            # Build report request
+            report_request = {
+                "metrics": [
+                    "adImpressions",
+                    "earnings"
+                ],
+                "timeFrame": time_frame,
+                "groupBy": [
+                    "platform",
+                    "adUnitType"
+                ]
+            }
+            
+            # Add app filter if specified
+            if self.app_ids:
+                report_request["filterBy"] = [
+                    {
+                        "filterName": "inmobiAppId",
+                        "filterValue": self.app_ids
+                    }
+                ]
+                print(f"      [INFO] Filtering by InMobi App IDs: {self.app_ids}")
+            
             body = {
-                "reportRequest": {
-                    "metrics": [
-                        "adImpressions",
-                        "earnings"
-                    ],
-                    "timeFrame": start_date.strftime("%Y-%m-%d"),
-                    "endDate": end_date.strftime("%Y-%m-%d"),
-                    "groupBy": [
-                        "platform",
-                        "adType"
-                    ],
-                    "filterBy": {},
-                    "orderBy": [],
-                    "orderType": ""
-                }
+                "reportRequest": report_request
             }
             
             print(f"      [INFO] Requesting InMobi data for {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}")
+            print(f"      [DEBUG] Request body: {body}")
             
             response = requests.post(
                 self.REPORTING_URL,
@@ -264,7 +287,7 @@ class InMobiFetcher(NetworkDataFetcher):
                 revenue = float(row.get("earnings", 0) or 0)
                 impressions = int(row.get("adImpressions", 0) or 0)
                 platform_raw = row.get("platform", "android")
-                ad_type_raw = row.get("adType", "interstitial")
+                ad_type_raw = row.get("adUnitType", "interstitial")
                 
                 print(f"      [DEBUG] Row: platform={platform_raw}, adType={ad_type_raw}, revenue={revenue}, impressions={impressions}")
                 
