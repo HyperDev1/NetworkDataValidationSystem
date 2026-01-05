@@ -210,45 +210,88 @@ The system sends formatted Slack messages with:
 
 ## 🔌 Adding New Networks
 
-To add support for a new network:
+### AI Agent ile Otomatik Ekleme (Önerilen)
 
-1. Create a new fetcher in `src/fetchers/`:
-```python
-from .base_fetcher import NetworkDataFetcher
+Bu proje, AI agent'ların yeni network eklemesini kolaylaştırmak için özel dökümanlar içerir:
 
-class NewNetworkFetcher(NetworkDataFetcher):
-    def __init__(self, api_key: str):
-        self.api_key = api_key
-    
-    def fetch_data(self, start_date, end_date):
-        # Implement API call
-        return {
-            'revenue': 0.0,
-            'impressions': 0,
-            'network': self.get_network_name(),
-            'date_range': {...}
-        }
-    
-    def get_network_name(self):
-        return "New Network"
+| Dosya | Amaç |
+|-------|------|
+| [AGENT.md](AGENT.md) | Proje mimarisi, standartlar ve debug pratikleri |
+| [SKILLS.md](SKILLS.md) | Adım adım prosedürler (API analizi, fetcher ekleme, vb.) |
+| [templates/](templates/) | Hazır kod şablonları |
+
+#### Agent'a Örnek Promptlar
+
+**Yeni network eklemek için:**
+```
+[Network API dökümanı URL'ini paylaş]
+
+Bu network'ü projeye eklemeni istiyorum. 
+1. Önce API dökümanını analiz et (.skills.md Skill 1)
+2. Sonra fetcher'ı implement et (.skills.md Skill 2)
+3. Her adımda terminal çıktısını kontrol et
 ```
 
-2. Add configuration in `config.yaml`:
+**Mevcut fetcher'da sorun çözmek için:**
+```
+test_networkname.py çalıştırdığımda [hata mesajı] alıyorum.
+Debug et ve düzelt.
+```
+
+#### Iteratif Geliştirme Workflow
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  1. API Döküman Analizi → templates/api_analysis_checklist.md
+│         ↓                                               
+│  2. Config + Minimal Fetcher → Auth test               
+│         ↓                                               
+│  3. Report Request Test → Response analizi             
+│         ↓                                               
+│  4. Mapping + Aggregation → Terminal çıktı kontrol     
+│         ↓                                               
+│  5. Full Integration → Final test                       
+└─────────────────────────────────────────────────────────┘
+```
+
+Her adımda JSON pretty-print ile request/response logları terminale yazdırılır. Agent bu çıktıları analiz ederek iteratif olarak düzeltme yapar.
+
+### Manuel Ekleme
+
+To add support for a new network manually:
+
+1. **API Dökümanını Analiz Et:**
+   - `templates/api_analysis_checklist.md` dosyasını kullan
+   - Endpoint, auth, request/response yapısını belirle
+
+2. **Config Ekle:**
 ```yaml
-new_network:
-  api_key: "YOUR_API_KEY"
+# config.yaml
+networks:
+  new_network:
+    enabled: true
+    api_key: "YOUR_API_KEY_HERE"
+    publisher_id: "YOUR_PUBLISHER_ID_HERE"
 ```
 
-3. Register in `src/validation_service.py`:
-```python
-from src.fetchers import NewNetworkFetcher
+3. **Fetcher Oluştur:**
+   - `templates/network_fetcher_template.py` dosyasını kopyala
+   - `src/fetchers/newnetwork_fetcher.py` olarak kaydet
+   - API'ye göre düzenle
 
-# In _initialize_components method:
-new_network_config = self.config.get('new_network', {})
-if new_network_config and new_network_config.get('api_key'):
-    self.fetchers.append(
-        NewNetworkFetcher(api_key=new_network_config['api_key'])
-    )
+4. **Test Script Oluştur:**
+   - `templates/test_network_template.py` dosyasını kopyala
+   - `test_newnetwork.py` olarak kaydet
+
+5. **Entegrasyon:**
+   - `src/fetchers/__init__.py` - Import ekle
+   - `src/config.py` - `get_newnetwork_config()` method ekle
+   - `src/validation_service.py` - NETWORK_NAME_MAP ve initialize ekle
+
+6. **Test Et:**
+```bash
+python test_newnetwork.py
+python main.py
 ```
 
 ## 🛠️ Development
