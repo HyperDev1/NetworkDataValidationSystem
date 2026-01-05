@@ -9,6 +9,7 @@ from .admob_fetcher import AdmobFetcher
 from .meta_fetcher import MetaFetcher
 from .inmobi_fetcher import InMobiFetcher
 from .moloco_fetcher import MolocoFetcher
+from .ironsource_fetcher import IronSourceFetcher
 
 __all__ = [
     'NetworkDataFetcher',
@@ -19,4 +20,5 @@ __all__ = [
     'MetaFetcher',
     'InMobiFetcher',
     'MolocoFetcher',
+    'IronSourceFetcher',
 ]
