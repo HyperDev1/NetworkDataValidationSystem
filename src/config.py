@@ -100,3 +100,8 @@ class Config:
     def get_inmobi_config(self) -> Dict[str, Any]:
         """Get InMobi API configuration."""
         return self.config.get('networks', {}).get('inmobi', {})
+
+    def get_moloco_config(self) -> Dict[str, Any]:
+        """Get Moloco API configuration."""
+        return self.config.get('networks', {}).get('moloco', {})
+

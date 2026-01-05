@@ -37,6 +37,16 @@ meta:
   access_token: "YOUR_SYSTEM_USER_TOKEN"  # Meta System User Access Token from Business Manager
   business_id: "YOUR_BUSINESS_ID"  # Meta Business ID from Business Manager
 
+# Moloco Publisher Configuration
+# Docs: https://help.publisher.moloco.com/hc/en-us/articles/26777697929111-Get-performance-data-using-the-Publisher-Summary-API
+moloco:
+  enabled: false
+  email: "YOUR_EMAIL"  # Your Moloco Publisher login email
+  password: "YOUR_PASSWORD"  # Your Moloco Publisher password
+  platform_id: "YOUR_PLATFORM_ID"  # Your Moloco Platform ID (workplace_id)
+  app_bundle_ids: ""  # Optional: comma-separated app bundle IDs to filter
+  time_zone: "UTC"  # Timezone for data aggregation (default: UTC)
+
 # Add other networks as needed
 # ironsource:
 #   secret_key: "YOUR_SECRET_KEY"

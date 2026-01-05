@@ -8,6 +8,7 @@ from .unity_fetcher import UnityAdsFetcher
 from .admob_fetcher import AdmobFetcher
 from .meta_fetcher import MetaFetcher
 from .inmobi_fetcher import InMobiFetcher
+from .moloco_fetcher import MolocoFetcher
 
 __all__ = [
     'NetworkDataFetcher',
@@ -17,4 +18,5 @@ __all__ = [
     'AdmobFetcher',
     'MetaFetcher',
     'InMobiFetcher',
+    'MolocoFetcher',
 ]

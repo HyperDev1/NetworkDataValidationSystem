@@ -2,11 +2,15 @@
 Main entry point for the Network Data Validation System.
 """
 import sys
+import io
 import time
 import schedule
 from datetime import datetime
 from src.config import Config
 from src.validation_service import ValidationService
+
+# Fix console encoding for Windows
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 
 
 def run_validation_check(service: ValidationService):

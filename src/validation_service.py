@@ -5,7 +5,7 @@ Compares AppLovin MAX data with individual network data.
 from datetime import datetime, timedelta
 from typing import Dict, Any, List
 from src.config import Config
-from src.fetchers import ApplovinFetcher, MintegralFetcher, UnityAdsFetcher, AdmobFetcher, MetaFetcher
+from src.fetchers import ApplovinFetcher, MintegralFetcher, UnityAdsFetcher, AdmobFetcher, MetaFetcher, MolocoFetcher
 from src.notifiers import SlackNotifier
 
 
@@ -30,6 +30,8 @@ class ValidationService:
         'META_AUDIENCE_NETWORK': 'meta',
         'META_BIDDING': 'meta',
         'META': 'meta',
+        'MOLOCO_BIDDING': 'moloco',
+        'MOLOCO': 'moloco',
     }
     
     def __init__(self, config: Config):
@@ -113,6 +115,23 @@ class ValidationService:
                 print(f"   ✅ Meta Audience Network fetcher initialized")
             except Exception as e:
                 print(f"   ⚠️ Meta fetcher skipped: {str(e)}")
+        
+        # Moloco Publisher
+        moloco_config = self.config.get_moloco_config()
+        if moloco_config.get('enabled') and moloco_config.get('publisher_id'):
+            try:
+                self.network_fetchers['moloco'] = MolocoFetcher(
+                    email=moloco_config['email'],
+                    password=moloco_config['password'],
+                    platform_id=moloco_config['platform_id'],
+                    publisher_id=moloco_config['publisher_id'],
+                    app_bundle_ids=moloco_config.get('app_bundle_ids'),
+                    time_zone=moloco_config.get('time_zone', 'UTC'),
+                    ad_unit_mapping=moloco_config.get('ad_unit_mapping', {})
+                )
+                print(f"   ✅ Moloco Publisher fetcher initialized")
+            except Exception as e:
+                print(f"   ⚠️ Moloco fetcher skipped: {str(e)}")
     
     def run_validation(self) -> Dict[str, Any]:
         """Run network comparison report."""
