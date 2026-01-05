@@ -96,3 +96,7 @@ class Config:
     def get_meta_config(self) -> Dict[str, Any]:
         """Get Meta Audience Network API configuration."""
         return self.config.get('networks', {}).get('meta', {})
+    
+    def get_inmobi_config(self) -> Dict[str, Any]:
+        """Get InMobi API configuration."""
+        return self.config.get('networks', {}).get('inmobi', {})
