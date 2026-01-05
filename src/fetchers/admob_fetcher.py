@@ -21,7 +21,13 @@ except ImportError:
 
 
 class AdmobFetcher(NetworkDataFetcher):
-    """Fetcher for Google AdMob monetization data using OAuth 2.0."""
+    """
+    Fetcher for Google AdMob monetization data using OAuth 2.0.
+    
+    OAuth 2.0 with Production mode:
+    - Requires browser for initial authorization only
+    - Token is cached and auto-refreshed (no expiration in Production mode)
+    """
     
     # AdMob API scopes
     SCOPES = ['https://www.googleapis.com/auth/admob.readonly']
@@ -44,18 +50,20 @@ class AdmobFetcher(NetworkDataFetcher):
     
     def __init__(
         self,
-        oauth_credentials_path: str,
         publisher_id: str,
         app_ids: Optional[str] = None,
-        token_path: str = "credentials/admob_token.json"
+        oauth_credentials_path: Optional[str] = None,
+        token_path: str = "credentials/admob_token.json",
+        # Legacy parameter - ignored
+        service_account_path: Optional[str] = None
     ):
         """
         Initialize AdMob fetcher with OAuth 2.0.
         
         Args:
-            oauth_credentials_path: Path to OAuth 2.0 client credentials JSON file
             publisher_id: AdMob Publisher ID (format: pub-XXXXXXXXXXXXXXXX)
             app_ids: Optional comma-separated AdMob app IDs to filter
+            oauth_credentials_path: Path to OAuth 2.0 client credentials JSON file
             token_path: Path to store/load OAuth token
         """
         if not GOOGLE_API_AVAILABLE:
@@ -74,6 +82,18 @@ class AdmobFetcher(NetworkDataFetcher):
     
     def _build_service(self):
         """Build AdMob API service with OAuth 2.0 authentication."""
+        creds = self._authenticate_oauth()
+        
+        if not creds:
+            raise ValueError(
+                "OAuth authentication failed. "
+                "Please provide valid oauth_credentials_path."
+            )
+        
+        return build('admob', 'v1', credentials=creds)
+    
+    def _authenticate_oauth(self) -> Optional[Credentials]:
+        """Authenticate using OAuth 2.0 (requires browser for initial auth)."""
         creds = None
         
         # Check if we have a saved token
@@ -99,10 +119,8 @@ class AdmobFetcher(NetworkDataFetcher):
             if not creds:
                 # Need to do OAuth flow
                 if not os.path.exists(self.oauth_credentials_path):
-                    raise FileNotFoundError(
-                        f"OAuth credentials file not found: {self.oauth_credentials_path}\n"
-                        "Please download OAuth 2.0 Client ID credentials from Google Cloud Console."
-                    )
+                    print(f"      [WARN] OAuth credentials file not found: {self.oauth_credentials_path}")
+                    return None
                 
                 print("      [INFO] Starting OAuth authorization flow...")
                 print("      [INFO] A browser window will open for authorization.")
@@ -118,7 +136,7 @@ class AdmobFetcher(NetworkDataFetcher):
         if creds:
             self._save_token(creds)
         
-        return build('admob', 'v1', credentials=creds)
+        return creds
     
     def _save_token(self, creds: Credentials):
         """Save OAuth token to file for future use."""

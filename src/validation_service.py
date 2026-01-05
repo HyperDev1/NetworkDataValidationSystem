@@ -91,12 +91,12 @@ class ValidationService:
         if admob_config.get('enabled') and admob_config.get('oauth_credentials_path'):
             try:
                 self.network_fetchers['admob'] = AdmobFetcher(
-                    oauth_credentials_path=admob_config['oauth_credentials_path'],
                     publisher_id=admob_config['publisher_id'],
                     app_ids=admob_config.get('app_ids'),
+                    oauth_credentials_path=admob_config['oauth_credentials_path'],
                     token_path=admob_config.get('token_path', 'credentials/admob_token.json')
                 )
-                print(f"   ✅ AdMob fetcher initialized (OAuth)")
+                print(f"   ✅ AdMob fetcher initialized")
             except ImportError as e:
                 print(f"   ⚠️ AdMob fetcher skipped: {str(e)}")
             except FileNotFoundError as e:
