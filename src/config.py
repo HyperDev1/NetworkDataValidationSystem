@@ -109,3 +109,7 @@ class Config:
         """Get BidMachine SSP API configuration."""
         return self.config.get('networks', {}).get('bidmachine', {})
 
+    def get_liftoff_config(self) -> Dict[str, Any]:
+        """Get Liftoff (Vungle) API configuration."""
+        return self.config.get('networks', {}).get('liftoff', {})
+

@@ -5,7 +5,7 @@ Compares AppLovin MAX data with individual network data.
 from datetime import datetime, timedelta
 from typing import Dict, Any, List
 from src.config import Config
-from src.fetchers import ApplovinFetcher, MintegralFetcher, UnityAdsFetcher, AdmobFetcher, MetaFetcher, MolocoFetcher, IronSourceFetcher, InMobiFetcher, BidMachineFetcher
+from src.fetchers import ApplovinFetcher, MintegralFetcher, UnityAdsFetcher, AdmobFetcher, MetaFetcher, MolocoFetcher, IronSourceFetcher, InMobiFetcher, BidMachineFetcher, LiftoffFetcher
 from src.notifiers import SlackNotifier
 
 
@@ -36,6 +36,18 @@ class ValidationService:
         'INMOBI': 'inmobi',
         'BIDMACHINE_BIDDING': 'bidmachine',
         'BIDMACHINE': 'bidmachine',
+        'LIFTOFF_BIDDING': 'liftoff',
+        'LIFTOFF': 'liftoff',
+        'VUNGLE_BIDDING': 'liftoff',
+        'VUNGLE': 'liftoff',
+    }
+    
+    # Display name mapping - convert AppLovin network names to display names for Slack
+    NETWORK_DISPLAY_NAME_MAP = {
+        'Vungle Bidding': 'Liftoff Bidding',
+        'Vungle': 'Liftoff',
+        'VUNGLE_BIDDING': 'Liftoff Bidding',
+        'VUNGLE': 'Liftoff',
     }
     
     def __init__(self, config: Config):
@@ -177,6 +189,18 @@ class ValidationService:
                 print(f"   ✅ BidMachine fetcher initialized")
             except Exception as e:
                 print(f"   ⚠️ BidMachine fetcher skipped: {str(e)}")
+        
+        # Liftoff (Vungle)
+        liftoff_config = self.config.get_liftoff_config()
+        if liftoff_config.get('enabled') and liftoff_config.get('api_key'):
+            try:
+                self.network_fetchers['liftoff'] = LiftoffFetcher(
+                    api_key=liftoff_config['api_key'],
+                    application_ids=liftoff_config.get('application_ids'),
+                )
+                print(f"   ✅ Liftoff fetcher initialized")
+            except Exception as e:
+                print(f"   ⚠️ Liftoff fetcher skipped: {str(e)}")
     
     def run_validation(self) -> Dict[str, Any]:
         """Run network comparison report."""
@@ -341,9 +365,12 @@ class ValidationService:
             rev_delta = self._calculate_delta(row['max_revenue'], net_revenue)
             cpm_delta = self._calculate_delta(row['max_ecpm'], net_ecpm)
             
+            # Get display name for network (convert Vungle -> Liftoff etc.)
+            display_network = self.NETWORK_DISPLAY_NAME_MAP.get(row['network'], row['network'])
+            
             comparison_rows.append({
                 'application': row['application'],
-                'network': row['network'],
+                'network': display_network,
                 'ad_type': row['ad_type'],
                 'max_impressions': row['max_impressions'],
                 'network_impressions': net_impressions,
