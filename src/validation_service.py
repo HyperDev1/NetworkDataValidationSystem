@@ -5,7 +5,7 @@ Compares AppLovin MAX data with individual network data.
 from datetime import datetime, timedelta
 from typing import Dict, Any, List
 from src.config import Config
-from src.fetchers import ApplovinFetcher, MintegralFetcher, UnityAdsFetcher, AdmobFetcher, MetaFetcher, MolocoFetcher
+from src.fetchers import ApplovinFetcher, MintegralFetcher, UnityAdsFetcher, AdmobFetcher, MetaFetcher, MolocoFetcher, IronSourceFetcher
 from src.notifiers import SlackNotifier
 
 
@@ -132,6 +132,20 @@ class ValidationService:
                 print(f"   ✅ Moloco Publisher fetcher initialized")
             except Exception as e:
                 print(f"   ⚠️ Moloco fetcher skipped: {str(e)}")
+        
+        # IronSource
+        ironsource_config = self.config.get_ironsource_config()
+        if ironsource_config.get('enabled') and ironsource_config.get('secret_key'):
+            try:
+                self.network_fetchers['ironsource'] = IronSourceFetcher(
+                    username=ironsource_config['username'],
+                    secret_key=ironsource_config['secret_key'],
+                    android_app_keys=ironsource_config.get('android_app_keys'),
+                    ios_app_keys=ironsource_config.get('ios_app_keys'),
+                )
+                print(f"   ✅ IronSource fetcher initialized")
+            except Exception as e:
+                print(f"   ⚠️ IronSource fetcher skipped: {str(e)}")
     
     def run_validation(self) -> Dict[str, Any]:
         """Run network comparison report."""
