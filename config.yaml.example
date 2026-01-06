@@ -55,6 +55,13 @@ bidmachine:
   password: "YOUR_BIDMACHINE_PASSWORD"  # BidMachine SSP account password
   app_bundle_ids: ""  # Optional: comma-separated app bundle IDs to filter (e.g., "com.example.app,1234567890")
 
+# Liftoff (Vungle) Configuration
+# Docs: https://support.vungle.com/hc/en-us/articles/211365828-Publisher-Reporting-API-2-0
+liftoff:
+  enabled: false
+  api_key: "YOUR_LIFTOFF_API_KEY"  # API Key from Liftoff Dashboard → Reports page
+  application_ids: ""  # Optional: comma-separated Liftoff Application IDs to filter
+
 # Add other networks as needed
 # ironsource:
 #   secret_key: "YOUR_SECRET_KEY"

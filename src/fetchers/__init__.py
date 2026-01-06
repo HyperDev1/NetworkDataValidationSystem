@@ -11,6 +11,7 @@ from .inmobi_fetcher import InMobiFetcher
 from .moloco_fetcher import MolocoFetcher
 from .ironsource_fetcher import IronSourceFetcher
 from .bidmachine_fetcher import BidMachineFetcher
+from .liftoff_fetcher import LiftoffFetcher
 
 __all__ = [
     'NetworkDataFetcher',
@@ -23,4 +24,5 @@ __all__ = [
     'MolocoFetcher',
     'IronSourceFetcher',
     'BidMachineFetcher',
+    'LiftoffFetcher',
 ]
