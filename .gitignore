@@ -24,3 +24,5 @@ config.yaml
 
 
 service.log
+.DS_Store
+service.pid

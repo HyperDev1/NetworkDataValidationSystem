@@ -64,36 +64,44 @@ def start_service():
     
     print("🚀 Servis başlatılıyor...")
     
-    # Windows'ta arka planda başlat
-    # CREATE_NO_WINDOW flag'i ile pencere açılmadan çalışır
-    CREATE_NO_WINDOW = 0x08000000
-    
     # Log dosyasına yönlendir
     with open(LOG_FILE, 'a', encoding='utf-8') as log:
         log.write(f"\n{'='*60}\n")
         log.write(f"Servis başlatıldı: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
         log.write(f"{'='*60}\n")
     
-    # pythonw.exe kullanarak pencere açmadan başlat
     python_exe = sys.executable
-    pythonw_exe = python_exe.replace('python.exe', 'pythonw.exe')
     
-    # pythonw varsa onu kullan, yoksa normal python ile arka planda çalıştır
-    if os.path.exists(pythonw_exe):
-        process = subprocess.Popen(
-            [pythonw_exe, MAIN_SCRIPT, '--schedule'],
-            cwd=BASE_DIR,
-            stdout=open(LOG_FILE, 'a', encoding='utf-8'),
-            stderr=subprocess.STDOUT,
-            creationflags=CREATE_NO_WINDOW
-        )
+    # Platform'a göre arka planda başlat
+    if sys.platform == 'win32':
+        # Windows: CREATE_NO_WINDOW flag'i ile pencere açılmadan çalışır
+        CREATE_NO_WINDOW = 0x08000000
+        pythonw_exe = python_exe.replace('python.exe', 'pythonw.exe')
+        
+        if os.path.exists(pythonw_exe):
+            process = subprocess.Popen(
+                [pythonw_exe, MAIN_SCRIPT, '--schedule'],
+                cwd=BASE_DIR,
+                stdout=open(LOG_FILE, 'a', encoding='utf-8'),
+                stderr=subprocess.STDOUT,
+                creationflags=CREATE_NO_WINDOW
+            )
+        else:
+            process = subprocess.Popen(
+                [python_exe, MAIN_SCRIPT, '--schedule'],
+                cwd=BASE_DIR,
+                stdout=open(LOG_FILE, 'a', encoding='utf-8'),
+                stderr=subprocess.STDOUT,
+                creationflags=CREATE_NO_WINDOW
+            )
     else:
+        # macOS/Linux: nohup benzeri arka plan işlemi
         process = subprocess.Popen(
             [python_exe, MAIN_SCRIPT, '--schedule'],
             cwd=BASE_DIR,
             stdout=open(LOG_FILE, 'a', encoding='utf-8'),
             stderr=subprocess.STDOUT,
-            creationflags=CREATE_NO_WINDOW
+            start_new_session=True
         )
     
     # PID'yi kaydet
