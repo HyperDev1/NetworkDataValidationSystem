@@ -13,6 +13,7 @@ from .ironsource_fetcher import IronSourceFetcher
 from .bidmachine_fetcher import BidMachineFetcher
 from .liftoff_fetcher import LiftoffFetcher
 from .dt_exchange_fetcher import DTExchangeFetcher
+from .pangle_fetcher import PangleFetcher
 
 __all__ = [
     'NetworkDataFetcher',
@@ -27,4 +28,5 @@ __all__ = [
     'BidMachineFetcher',
     'LiftoffFetcher',
     'DTExchangeFetcher',
+    'PangleFetcher',
 ]

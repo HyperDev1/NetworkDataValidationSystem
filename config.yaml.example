@@ -71,6 +71,17 @@ dt_exchange:
   source: "mediation"  # Report source: "mediation" for DT Exchange
   app_ids: ""  # Optional: comma-separated Fyber App IDs to filter
 
+# Pangle Configuration
+# Docs: https://www.pangleglobal.com/integration/reporting-api-v2
+pangle:
+  enabled: false
+  user_id: "YOUR_PANGLE_USER_ID"  # Pangle account ID
+  role_id: "YOUR_PANGLE_ROLE_ID"  # Role ID (found near security key in dashboard)
+  secure_key: "YOUR_PANGLE_SECURE_KEY"  # From Pangle platform → SDK Integration → Data API
+  time_zone: 0  # 0 for UTC, 8 for UTC+8 (billing uses UTC+8)
+  currency: "usd"  # "usd" or "cny" (lowercase)
+  package_names: ""  # Optional: comma-separated package names to filter (e.g., "com.example.app,1234567890")
+
 # Add other networks as needed
 # ironsource:
 #   secret_key: "YOUR_SECRET_KEY"
