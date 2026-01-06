@@ -62,6 +62,19 @@ liftoff:
   api_key: "YOUR_LIFTOFF_API_KEY"  # API Key from Liftoff Dashboard → Reports page
   application_ids: ""  # Optional: comma-separated Liftoff Application IDs to filter
 
+# Chartboost Mediation Configuration
+# Docs: https://docs.chartboost.com/en/mediation/reference/mediation-reporting-api/
+chartboost:
+  enabled: false
+  client_id: "YOUR_CHARTBOOST_CLIENT_ID"  # OAuth Client ID from Company info & settings → Access Management
+  client_secret: "YOUR_CHARTBOOST_CLIENT_SECRET"  # OAuth Client Secret (only shown once when created)
+  app_ids: ""  # Optional: comma-separated Chartboost app IDs to filter
+  time_zone: "UTC"  # UTC or America/Los_Angeles
+  # Map app IDs to platforms for platform breakdown (android/ios)
+  app_platform_map:
+    # "app_id_1": "android"
+    # "app_id_2": "ios"
+
 # Add other networks as needed
 # ironsource:
 #   secret_key: "YOUR_SECRET_KEY"

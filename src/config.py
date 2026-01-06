@@ -113,3 +113,7 @@ class Config:
         """Get Liftoff (Vungle) API configuration."""
         return self.config.get('networks', {}).get('liftoff', {})
 
+    def get_chartboost_config(self) -> Dict[str, Any]:
+        """Get Chartboost Mediation API configuration."""
+        return self.config.get('networks', {}).get('chartboost', {})
+
