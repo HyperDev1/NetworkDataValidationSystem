@@ -12,6 +12,7 @@ from .moloco_fetcher import MolocoFetcher
 from .ironsource_fetcher import IronSourceFetcher
 from .bidmachine_fetcher import BidMachineFetcher
 from .liftoff_fetcher import LiftoffFetcher
+from .dt_exchange_fetcher import DTExchangeFetcher
 
 __all__ = [
     'NetworkDataFetcher',
@@ -25,4 +26,5 @@ __all__ = [
     'IronSourceFetcher',
     'BidMachineFetcher',
     'LiftoffFetcher',
+    'DTExchangeFetcher',
 ]
