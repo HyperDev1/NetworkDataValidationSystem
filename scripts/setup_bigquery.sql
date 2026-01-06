@@ -46,41 +46,6 @@ OPTIONS(
 );
 
 
--- Optional: Create a view for daily summaries with sync metadata
-CREATE OR REPLACE VIEW `gen-lang-client-0468554395.ad_network_analytics.daily_summary` AS
-SELECT
-    date,
-    network,
-    platform,
-    
-    -- Totals
-    SUM(max_revenue) AS total_max_revenue,
-    SUM(network_revenue) AS total_network_revenue,
-    SUM(max_impressions) AS total_max_impressions,
-    SUM(network_impressions) AS total_network_impressions,
-    
-    -- Weighted average eCPM
-    SAFE_DIVIDE(SUM(max_revenue) * 1000, SUM(max_impressions)) AS avg_max_ecpm,
-    SAFE_DIVIDE(SUM(network_revenue) * 1000, SUM(network_impressions)) AS avg_network_ecpm,
-    
-    -- Overall delta
-    SAFE_DIVIDE(
-        SUM(network_revenue) - SUM(max_revenue),
-        SUM(max_revenue)
-    ) * 100 AS overall_rev_delta_pct,
-    
-    -- Record count
-    COUNT(*) AS record_count,
-    
-    -- Sync metadata
-    MAX(fetched_at) AS last_sync_time,
-    MAX(date) AS last_report_date
-    
-FROM `gen-lang-client-0468554395.ad_network_analytics.network_comparison`
-GROUP BY date, network, platform
-ORDER BY date DESC, network, platform;
-
-
 -- Sync metadata summary view for dashboard header
 CREATE OR REPLACE VIEW `gen-lang-client-0468554395.ad_network_analytics.sync_metadata` AS
 SELECT
@@ -133,23 +98,6 @@ WHERE
     ABS(rev_delta_pct) > 5 
     OR ABS(imp_delta_pct) > 5
 ORDER BY date DESC, ABS(rev_delta_pct) DESC;
-
-
--- Optional: Create External Table linked to GCS (alternative to loading data)
--- This queries data directly from GCS without copying to BigQuery
--- Useful for cost optimization with infrequent queries
-/*
-CREATE OR REPLACE EXTERNAL TABLE `gen-lang-client-0468554395.ad_network_analytics.network_comparison_external`
-WITH PARTITION COLUMNS (
-    dt DATE  -- Hive partition column
-)
-OPTIONS (
-    format = 'PARQUET',
-    uris = ['gs://network_comparison_bucket/network_data/*'],
-    hive_partition_uri_prefix = 'gs://network_comparison_bucket/network_data/',
-    require_hive_partition_filter = false
-);
-*/
 
 
 -- Sample queries for verification:
