@@ -5,7 +5,7 @@ Compares AppLovin MAX data with individual network data.
 from datetime import datetime, timedelta
 from typing import Dict, Any, List
 from src.config import Config
-from src.fetchers import ApplovinFetcher, MintegralFetcher, UnityAdsFetcher, AdmobFetcher, MetaFetcher, MolocoFetcher, IronSourceFetcher, InMobiFetcher, BidMachineFetcher, LiftoffFetcher, DTExchangeFetcher
+from src.fetchers import ApplovinFetcher, MintegralFetcher, UnityAdsFetcher, AdmobFetcher, MetaFetcher, MolocoFetcher, IronSourceFetcher, InMobiFetcher, BidMachineFetcher, LiftoffFetcher, DTExchangeFetcher, PangleFetcher
 from src.notifiers import SlackNotifier
 
 
@@ -16,34 +16,74 @@ class ValidationService:
     NETWORK_NAME_MAP = {
         'MINTEGRAL_BIDDING': 'mintegral',
         'MINTEGRAL': 'mintegral',
+        'Mintegral Bidding': 'mintegral',
+        'Mintegral': 'mintegral',
         'UNITY_BIDDING': 'unity',
         'UNITY': 'unity',
+        'Unity Bidding': 'unity',
+        'Unity': 'unity',
         'ADMOB_BIDDING': 'admob',
         'ADMOB': 'admob',
         'GOOGLE_BIDDING': 'admob',
         'GOOGLE': 'admob',
+        'Google Bidding': 'admob',
+        'Google': 'admob',
+        'AdMob Bidding': 'admob',
+        'AdMob': 'admob',
         'IRONSOURCE_BIDDING': 'ironsource',
         'IRONSOURCE': 'ironsource',
+        'ironSource Bidding': 'ironsource',
+        'ironSource': 'ironsource',
+        'IronSource Bidding': 'ironsource',
+        'IronSource': 'ironsource',
         'FACEBOOK_NETWORK': 'meta',
         'FACEBOOK_BIDDING': 'meta',
         'FACEBOOK': 'meta',
         'META_AUDIENCE_NETWORK': 'meta',
         'META_BIDDING': 'meta',
         'META': 'meta',
+        'Facebook Bidding': 'meta',
+        'Facebook': 'meta',
+        'Meta Bidding': 'meta',
+        'Meta': 'meta',
         'MOLOCO_BIDDING': 'moloco',
         'MOLOCO': 'moloco',
+        'Moloco Bidding': 'moloco',
+        'Moloco': 'moloco',
         'INMOBI_BIDDING': 'inmobi',
         'INMOBI': 'inmobi',
+        'InMobi Bidding': 'inmobi',
+        'InMobi': 'inmobi',
         'BIDMACHINE_BIDDING': 'bidmachine',
         'BIDMACHINE': 'bidmachine',
+        'BidMachine Bidding': 'bidmachine',
+        'BidMachine': 'bidmachine',
         'LIFTOFF_BIDDING': 'liftoff',
         'LIFTOFF': 'liftoff',
         'VUNGLE_BIDDING': 'liftoff',
         'VUNGLE': 'liftoff',
+        'Liftoff Bidding': 'liftoff',
+        'Liftoff': 'liftoff',
+        'Vungle Bidding': 'liftoff',
+        'Vungle': 'liftoff',
         'DT_EXCHANGE_BIDDING': 'dt_exchange',
         'DT_EXCHANGE': 'dt_exchange',
         'FYBER_BIDDING': 'dt_exchange',
         'FYBER': 'dt_exchange',
+        'DT Exchange Bidding': 'dt_exchange',
+        'DT Exchange': 'dt_exchange',
+        'Fyber Bidding': 'dt_exchange',
+        'Fyber': 'dt_exchange',
+        'PANGLE_BIDDING': 'pangle',
+        'PANGLE': 'pangle',
+        'Pangle Bidding': 'pangle',
+        'Pangle': 'pangle',
+        'TIKTOK_BIDDING': 'pangle',
+        'TIKTOK': 'pangle',
+        'Tiktok Bidding': 'pangle',
+        'Tiktok': 'pangle',
+        'TikTok Bidding': 'pangle',
+        'TikTok': 'pangle',
     }
     
     # Display name mapping - convert AppLovin network names to display names for Slack
@@ -56,6 +96,12 @@ class ValidationService:
         'Fyber': 'DT Exchange',
         'FYBER_BIDDING': 'DT Exchange Bidding',
         'FYBER': 'DT Exchange',
+        'Tiktok Bidding': 'Pangle Bidding',
+        'Tiktok': 'Pangle',
+        'TIKTOK_BIDDING': 'Pangle Bidding',
+        'TIKTOK': 'Pangle',
+        'TikTok Bidding': 'Pangle Bidding',
+        'TikTok': 'Pangle',
     }
     
     def __init__(self, config: Config):
@@ -223,6 +269,22 @@ class ValidationService:
                 print(f"   ✅ DT Exchange fetcher initialized")
             except Exception as e:
                 print(f"   ⚠️ DT Exchange fetcher skipped: {str(e)}")
+        
+        # Pangle
+        pangle_config = self.config.get_pangle_config()
+        if pangle_config.get('enabled') and pangle_config.get('secure_key'):
+            try:
+                self.network_fetchers['pangle'] = PangleFetcher(
+                    user_id=pangle_config['user_id'],
+                    role_id=pangle_config['role_id'],
+                    secure_key=pangle_config['secure_key'],
+                    time_zone=pangle_config.get('time_zone', 0),
+                    currency=pangle_config.get('currency', 'usd'),
+                    package_names=pangle_config.get('package_names'),
+                )
+                print(f"   ✅ Pangle fetcher initialized")
+            except Exception as e:
+                print(f"   ⚠️ Pangle fetcher skipped: {str(e)}")
     
     def run_validation(self) -> Dict[str, Any]:
         """Run network comparison report."""
@@ -503,6 +565,10 @@ class ValidationService:
             'META': '🔵',
             'META_AUDIENCE_NETWORK': '🔵',
             'META_BIDDING': '🔵',
+            'PANGLE': '🎯',
+            'PANGLE_BIDDING': '🎯',
+            'TIKTOK': '🎯',
+            'TIKTOK_BIDDING': '🎯',
         }
         
         # Create separate block for each network

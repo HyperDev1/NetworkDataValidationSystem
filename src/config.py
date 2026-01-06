@@ -117,3 +117,7 @@ class Config:
         """Get DT Exchange (Digital Turbine) API configuration."""
         return self.config.get('networks', {}).get('dt_exchange', {})
 
+    def get_pangle_config(self) -> Dict[str, Any]:
+        """Get Pangle API configuration."""
+        return self.config.get('networks', {}).get('pangle', {})
+
