@@ -5,7 +5,7 @@ Compares AppLovin MAX data with individual network data.
 from datetime import datetime, timedelta
 from typing import Dict, Any, List
 from src.config import Config
-from src.fetchers import ApplovinFetcher, MintegralFetcher, UnityAdsFetcher, AdmobFetcher, MetaFetcher, MolocoFetcher, IronSourceFetcher, InMobiFetcher, BidMachineFetcher, LiftoffFetcher
+from src.fetchers import ApplovinFetcher, MintegralFetcher, UnityAdsFetcher, AdmobFetcher, MetaFetcher, MolocoFetcher, IronSourceFetcher, InMobiFetcher, BidMachineFetcher, LiftoffFetcher, DTExchangeFetcher
 from src.notifiers import SlackNotifier
 
 
@@ -40,6 +40,10 @@ class ValidationService:
         'LIFTOFF': 'liftoff',
         'VUNGLE_BIDDING': 'liftoff',
         'VUNGLE': 'liftoff',
+        'DT_EXCHANGE_BIDDING': 'dt_exchange',
+        'DT_EXCHANGE': 'dt_exchange',
+        'FYBER_BIDDING': 'dt_exchange',
+        'FYBER': 'dt_exchange',
     }
     
     # Display name mapping - convert AppLovin network names to display names for Slack
@@ -48,6 +52,10 @@ class ValidationService:
         'Vungle': 'Liftoff',
         'VUNGLE_BIDDING': 'Liftoff Bidding',
         'VUNGLE': 'Liftoff',
+        'Fyber Bidding': 'DT Exchange Bidding',
+        'Fyber': 'DT Exchange',
+        'FYBER_BIDDING': 'DT Exchange Bidding',
+        'FYBER': 'DT Exchange',
     }
     
     def __init__(self, config: Config):
@@ -201,6 +209,20 @@ class ValidationService:
                 print(f"   ✅ Liftoff fetcher initialized")
             except Exception as e:
                 print(f"   ⚠️ Liftoff fetcher skipped: {str(e)}")
+        
+        # DT Exchange (Digital Turbine / Fyber)
+        dt_exchange_config = self.config.get_dt_exchange_config()
+        if dt_exchange_config.get('enabled') and dt_exchange_config.get('client_id'):
+            try:
+                self.network_fetchers['dt_exchange'] = DTExchangeFetcher(
+                    client_id=dt_exchange_config['client_id'],
+                    client_secret=dt_exchange_config['client_secret'],
+                    source=dt_exchange_config.get('source', 'mediation'),
+                    app_ids=dt_exchange_config.get('app_ids'),
+                )
+                print(f"   ✅ DT Exchange fetcher initialized")
+            except Exception as e:
+                print(f"   ⚠️ DT Exchange fetcher skipped: {str(e)}")
     
     def run_validation(self) -> Dict[str, Any]:
         """Run network comparison report."""
