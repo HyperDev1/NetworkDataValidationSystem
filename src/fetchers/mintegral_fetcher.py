@@ -165,5 +165,5 @@ class MintegralFetcher(NetworkDataFetcher):
     
     def get_network_name(self) -> str:
         """Return the network name."""
-        return "Mintegral"
+        return "Mintegral Bidding"
 

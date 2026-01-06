@@ -291,4 +291,4 @@ class IronSourceFetcher(NetworkDataFetcher):
     
     def get_network_name(self) -> str:
         """Return the name of the network."""
-        return "IronSource"
+        return "IronSource Bidding"

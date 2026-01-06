@@ -440,7 +440,7 @@ class DTExchangeFetcher(NetworkDataFetcher):
     
     def get_network_name(self) -> str:
         """Return the name of the network."""
-        return "DT Exchange"
+        return "DT Exchange Bidding"
     
     def debug_auth(self) -> Dict[str, Any]:
         """

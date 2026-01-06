@@ -3,10 +3,11 @@ Main validation service orchestrating data fetching and Slack notifications.
 Compares AppLovin MAX data with individual network data.
 """
 from datetime import datetime, timedelta
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from src.config import Config
 from src.fetchers import ApplovinFetcher, MintegralFetcher, UnityAdsFetcher, AdmobFetcher, MetaFetcher, MolocoFetcher, IronSourceFetcher, InMobiFetcher, BidMachineFetcher, LiftoffFetcher, DTExchangeFetcher, PangleFetcher
 from src.notifiers import SlackNotifier
+from src.exporters import GCSExporter
 
 
 class ValidationService:
@@ -110,6 +111,7 @@ class ValidationService:
         self.applovin_fetcher = None
         self.network_fetchers = {}
         self.notifier = None
+        self.gcs_exporter: Optional[GCSExporter] = None
         
         self._initialize_components()
     
@@ -133,6 +135,20 @@ class ValidationService:
                 webhook_url=slack_config['webhook_url'],
                 channel=slack_config.get('channel')
             )
+        
+        # Initialize GCS exporter for BigQuery/Looker analytics
+        gcp_config = self.config.get_gcp_config()
+        if gcp_config and gcp_config.get('enabled'):
+            try:
+                self.gcs_exporter = GCSExporter(
+                    project_id=gcp_config['project_id'],
+                    bucket_name=gcp_config['bucket_name'],
+                    service_account_path=gcp_config.get('service_account_path'),
+                    base_path=gcp_config.get('base_path', 'network_data')
+                )
+                print(f"   ✅ GCS exporter initialized (bucket: {gcp_config['bucket_name']})")
+            except Exception as e:
+                print(f"   ⚠️ GCS exporter initialization failed: {e}")
     
     def _initialize_network_fetchers(self):
         """Initialize individual network fetchers."""
@@ -389,6 +405,21 @@ class ValidationService:
                     print("   ✅ Report sent successfully")
                 else:
                     print("   ❌ Failed to send report")
+            
+            # Export to GCS for BigQuery/Looker analytics
+            if self.gcs_exporter:
+                print("\n📤 Exporting data to GCS...")
+                try:
+                    # Export comparison data (MAX vs Network) - this has the actual network data
+                    gcs_files = self.gcs_exporter.export_to_gcs(comparison_rows, end_date)
+                    if gcs_files:
+                        print(f"   ✅ Exported {len(comparison_rows)} comparison rows to GCS")
+                        for f in gcs_files:
+                            print(f"      📁 {f}")
+                    else:
+                        print("   ⚠️ No data exported to GCS")
+                except Exception as e:
+                    print(f"   ❌ GCS export failed: {e}")
             
             return {
                 'success': True,
