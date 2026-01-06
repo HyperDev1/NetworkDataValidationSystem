@@ -38,11 +38,12 @@ def main():
     
     # Check command line arguments first
     if len(sys.argv) > 1 and sys.argv[1] == '--help':
-        print("\nUsage:")
-        print("  python main.py              - Run validation once and exit (default)")
-        print("  python main.py --schedule   - Run with scheduling (continuous)")
-        print("  python main.py --test-slack - Test Slack integration")
-        print("  python main.py --help       - Show this help message")
+        print("\nKullanım:")
+        print("  python main.py              - Bir kez çalıştır ve çık (varsayılan)")
+        print("  python main.py --schedule   - Zamanlamayı başlat (09:30 ve 17:30)")
+        print("  python main.py --schedule-now - Önce çalıştır, sonra zamanlamayı başlat")
+        print("  python main.py --test-slack - Slack bağlantısını test et")
+        print("  python main.py --help       - Bu yardım mesajını göster")
         sys.exit(0)
     
     # Load configuration
@@ -66,26 +67,56 @@ def main():
             service.test_slack_integration()
             sys.exit(0)
         elif sys.argv[1] == '--schedule':
-            # Run with scheduling
-            scheduling_config = config.get_scheduling_config()
-            interval_hours = scheduling_config.get('interval_hours', 6)
+            # Run with fixed time scheduling (09:30 and 17:30)
+            print("\n🕐 Zamanlama aktif!")
+            print("   📅 Her gün saat 09:30 ve 17:30'da çalışacak")
+            print("   ⏰ Şu anki saat:", datetime.now().strftime("%H:%M:%S"))
+            print("\nDurdurmak için Ctrl+C basın\n")
             
-            print(f"\n🔄 Scheduling validation checks every {interval_hours} hour(s)")
-            print("Press Ctrl+C to stop\n")
+            # Schedule at specific times
+            schedule.every().day.at("09:30").do(lambda: run_validation_check(service))
+            schedule.every().day.at("17:30").do(lambda: run_validation_check(service))
             
-            # Run immediately on start
-            run_validation_check(service)
-            
-            # Schedule periodic runs
-            schedule.every(interval_hours).hours.do(lambda: run_validation_check(service))
+            # Show next run time
+            next_run = schedule.next_run()
+            if next_run:
+                print(f"⏳ Sonraki çalışma zamanı: {next_run.strftime('%Y-%m-%d %H:%M:%S')}\n")
             
             # Keep running
             try:
                 while True:
                     schedule.run_pending()
-                    time.sleep(60)  # Check every minute
+                    time.sleep(30)  # Check every 30 seconds
             except KeyboardInterrupt:
-                print("\n\nShutting down...")
+                print("\n\n🛑 Kapatılıyor...")
+                sys.exit(0)
+        elif sys.argv[1] == '--schedule-now':
+            # Run immediately then continue with schedule
+            print("\n🕐 Zamanlama aktif (önce bir kez çalıştırılacak)!")
+            print("   📅 Her gün saat 09:30 ve 17:30'da çalışacak")
+            print("   ⏰ Şu anki saat:", datetime.now().strftime("%H:%M:%S"))
+            print("\nDurdurmak için Ctrl+C basın\n")
+            
+            # Run immediately
+            print("🚀 Şimdi çalıştırılıyor...\n")
+            run_validation_check(service)
+            
+            # Schedule at specific times
+            schedule.every().day.at("09:30").do(lambda: run_validation_check(service))
+            schedule.every().day.at("17:30").do(lambda: run_validation_check(service))
+            
+            # Show next run time
+            next_run = schedule.next_run()
+            if next_run:
+                print(f"\n⏳ Sonraki çalışma zamanı: {next_run.strftime('%Y-%m-%d %H:%M:%S')}\n")
+            
+            # Keep running
+            try:
+                while True:
+                    schedule.run_pending()
+                    time.sleep(30)
+            except KeyboardInterrupt:
+                print("\n\n🛑 Kapatılıyor...")
                 sys.exit(0)
     
     # Default: Run once and exit
