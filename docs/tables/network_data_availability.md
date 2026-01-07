@@ -18,8 +18,10 @@ Her network için sync durumu ve son rapor tarihlerini takip eden view.
 |-------|-----|----------|
 | `network` | STRING | Network adı |
 | `record_count` | INT64 | Bu network için toplam kayıt sayısı |
+| `first_report_date` | DATE | Bu network için en eski rapor tarihi |
 | `last_report_date` | DATE | Bu network için en son rapor tarihi |
 | `last_sync_time` | TIMESTAMP | Bu network için son sync zamanı |
+| `first_report_date_str` | STRING | Formatlanmış ilk rapor tarihi (Looker display için) |
 | `last_report_date_str` | STRING | Formatlanmış son rapor tarihi (Looker display için) |
 | `last_sync_str` | STRING | Formatlanmış son sync zamanı (Looker display için) |
 

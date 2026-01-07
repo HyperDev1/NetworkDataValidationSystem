@@ -52,9 +52,11 @@ CREATE OR REPLACE VIEW `gen-lang-client-0468554395.ad_network_analytics.network_
 SELECT 
     network,
     COUNT(*) as record_count,
+    MIN(date) as first_report_date,
     MAX(date) as last_report_date,
     MAX(fetched_at) as last_sync_time,
     -- STRING formatted for display
+    CAST(MIN(date) AS STRING) AS first_report_date_str,
     CAST(MAX(date) AS STRING) AS last_report_date_str,
     FORMAT_TIMESTAMP('%Y-%m-%d %H:%M', MAX(fetched_at)) AS last_sync_str
 FROM `gen-lang-client-0468554395.ad_network_analytics.network_comparison`
@@ -74,9 +76,9 @@ for row in result:
 
 print()
 print('=== Testing network_data_availability (sample) ===')
-result = client.query('SELECT network, record_count, last_report_date_str, last_sync_str FROM `gen-lang-client-0468554395.ad_network_analytics.network_data_availability` LIMIT 5').result()
+result = client.query('SELECT network, record_count, first_report_date_str, last_report_date_str, last_sync_str FROM `gen-lang-client-0468554395.ad_network_analytics.network_data_availability` LIMIT 5').result()
 for row in result:
-    print(f'  {row.network}: Records={row.record_count}, Report={row.last_report_date_str}, Sync={row.last_sync_str}')
+    print(f'  {row.network}: Records={row.record_count}, First={row.first_report_date_str}, Last={row.last_report_date_str}, Sync={row.last_sync_str}')
 
 print()
 print('Done! Use *_str fields in Looker Text components or Table columns.')
