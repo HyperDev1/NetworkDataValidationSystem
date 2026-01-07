@@ -89,20 +89,35 @@ class ValidationService:
     
     # Display name mapping - convert AppLovin network names to display names for Slack
     NETWORK_DISPLAY_NAME_MAP = {
+        # Vungle -> Liftoff
         'Vungle Bidding': 'Liftoff Bidding',
-        'Vungle': 'Liftoff',
+        'Vungle': 'Liftoff Bidding',
         'VUNGLE_BIDDING': 'Liftoff Bidding',
-        'VUNGLE': 'Liftoff',
+        'VUNGLE': 'Liftoff Bidding',
+        'Liftoff Monetize Bidding': 'Liftoff Bidding',
+        # Fyber -> DT Exchange
         'Fyber Bidding': 'DT Exchange Bidding',
-        'Fyber': 'DT Exchange',
+        'Fyber': 'DT Exchange Bidding',
         'FYBER_BIDDING': 'DT Exchange Bidding',
-        'FYBER': 'DT Exchange',
+        'FYBER': 'DT Exchange Bidding',
+        # Tiktok -> Pangle
         'Tiktok Bidding': 'Pangle Bidding',
-        'Tiktok': 'Pangle',
+        'Tiktok': 'Pangle Bidding',
         'TIKTOK_BIDDING': 'Pangle Bidding',
-        'TIKTOK': 'Pangle',
+        'TIKTOK': 'Pangle Bidding',
         'TikTok Bidding': 'Pangle Bidding',
-        'TikTok': 'Pangle',
+        'TikTok': 'Pangle Bidding',
+        # Facebook -> Meta
+        'Facebook Network': 'Meta Bidding',
+        'Facebook Bidding': 'Meta Bidding',
+        'FACEBOOK': 'Meta Bidding',
+        'FACEBOOK_BIDDING': 'Meta Bidding',
+        # ironSource -> IronSource
+        'ironSource Bidding': 'Ironsource Bidding',
+        'ironSource': 'Ironsource Bidding',
+        # HyprMX
+        'Hyprmx Network': 'HyprMX',
+        'HYPRMX_NETWORK': 'HyprMX',
     }
     
     def __init__(self, config: Config):
@@ -446,34 +461,46 @@ class ValidationService:
         exclude_networks = exclude_networks or []
         
         for row in max_rows:
-            network_name_raw = row.get('network', '').upper().replace(' ', '_')
+            network_name = row.get('network', '')
+            network_name_raw = network_name.upper().replace(' ', '_')
             network_key = self.NETWORK_NAME_MAP.get(network_name_raw)
             
-            # Only include networks that have fetchers configured
-            if not network_key or network_key not in network_data:
-                continue
-            
-            # Apply include/exclude filters
-            if include_networks and network_key not in include_networks:
-                continue
-            if network_key in exclude_networks:
-                continue
-            
-            net_data = network_data[network_key]
             platform = 'ios' if 'iOS' in row.get('application', '') else 'android'
             ad_type = row.get('ad_type', '').lower()
             
-            # Get platform-specific data
-            platform_data = net_data.get('platform_data', {}).get(platform, {})
-            ad_data = platform_data.get('ad_data', {}).get(ad_type, {})
+            # Special handling for AppLovin's own networks (Applovin Bidding, Applovin Exchange)
+            # For these networks, MAX data IS the network's own data - no separate API needed
+            is_applovin_network = 'applovin' in network_name.lower()
             
-            # Skip if no network data for this ad type
-            if ad_data.get('impressions', 0) == 0:
-                continue
-            
-            net_revenue = ad_data.get('revenue', 0)
-            net_impressions = ad_data.get('impressions', 0)
-            net_ecpm = ad_data.get('ecpm', 0)
+            if is_applovin_network:
+                # Use MAX values as network values since AppLovin reports its own data directly
+                net_revenue = row.get('max_revenue', 0)
+                net_impressions = row.get('max_impressions', 0)
+                net_ecpm = row.get('max_ecpm', 0)
+            else:
+                # Only include networks that have fetchers configured
+                if not network_key or network_key not in network_data:
+                    continue
+                
+                # Apply include/exclude filters
+                if include_networks and network_key not in include_networks:
+                    continue
+                if network_key in exclude_networks:
+                    continue
+                
+                net_data = network_data[network_key]
+                
+                # Get platform-specific data
+                platform_data = net_data.get('platform_data', {}).get(platform, {})
+                ad_data = platform_data.get('ad_data', {}).get(ad_type, {})
+                
+                # Skip if no network data for this ad type
+                if ad_data.get('impressions', 0) == 0:
+                    continue
+                
+                net_revenue = ad_data.get('revenue', 0)
+                net_impressions = ad_data.get('impressions', 0)
+                net_ecpm = ad_data.get('ecpm', 0)
             
             # Calculate deltas
             imp_delta = self._calculate_delta(row['max_impressions'], net_impressions)

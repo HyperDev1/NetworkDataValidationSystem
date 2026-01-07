@@ -63,7 +63,9 @@ NETWORK_FETCHER_MAP = {
         'config_method': 'get_ironsource_config',
         'init_params': lambda cfg: {
             'username': cfg['username'],
-            'secret_key': cfg['secret_key']
+            'secret_key': cfg['secret_key'],
+            'android_app_keys': cfg.get('android_app_keys'),
+            'ios_app_keys': cfg.get('ios_app_keys')
         }
     },
     'mintegral': {
@@ -90,7 +92,7 @@ NETWORK_FETCHER_MAP = {
         'config_method': 'get_meta_config',
         'init_params': lambda cfg: {
             'access_token': cfg['access_token'],
-            'property_ids': cfg.get('property_ids')
+            'business_id': cfg['business_id']
         }
     },
     'moloco': {
@@ -99,7 +101,11 @@ NETWORK_FETCHER_MAP = {
         'init_params': lambda cfg: {
             'email': cfg['email'],
             'password': cfg['password'],
-            'app_bundle_ids': cfg.get('app_bundle_ids')
+            'platform_id': cfg['platform_id'],
+            'publisher_id': cfg['publisher_id'],
+            'app_bundle_ids': cfg.get('app_bundle_ids'),
+            'time_zone': cfg.get('time_zone', 'UTC'),
+            'ad_unit_mapping': cfg.get('ad_unit_mapping', {})
         }
     },
     'inmobi': {
@@ -108,15 +114,17 @@ NETWORK_FETCHER_MAP = {
         'init_params': lambda cfg: {
             'account_id': cfg['account_id'],
             'username': cfg['username'],
-            'secret_key': cfg['secret_key']
+            'secret_key': cfg['secret_key'],
+            'app_ids': cfg.get('app_ids')
         }
     },
     'bidmachine': {
         'class': BidMachineFetcher,
         'config_method': 'get_bidmachine_config',
         'init_params': lambda cfg: {
-            'seller_id': cfg['seller_id'],
-            'api_key': cfg['api_key']
+            'username': cfg['username'],
+            'password': cfg['password'],
+            'app_bundle_ids': cfg.get('app_bundle_ids')
         }
     },
     'liftoff': {
@@ -133,7 +141,8 @@ NETWORK_FETCHER_MAP = {
         'init_params': lambda cfg: {
             'client_id': cfg['client_id'],
             'client_secret': cfg['client_secret'],
-            'publisher_id': cfg.get('publisher_id')
+            'source': cfg.get('source', 'mediation'),
+            'app_ids': cfg.get('app_ids')
         }
     },
     'pangle': {
@@ -142,7 +151,10 @@ NETWORK_FETCHER_MAP = {
         'init_params': lambda cfg: {
             'user_id': cfg['user_id'],
             'role_id': cfg['role_id'],
-            'secure_key': cfg['secure_key']
+            'secure_key': cfg['secure_key'],
+            'time_zone': cfg.get('time_zone', 0),
+            'currency': cfg.get('currency', 'usd'),
+            'package_names': cfg.get('package_names')
         }
     }
 }
@@ -189,6 +201,37 @@ NETWORK_NAME_MAP = {
     'PANGLE_BIDDING': 'pangle', 'PANGLE': 'pangle', 
     'TIKTOK_BIDDING': 'pangle', 'TIKTOK': 'pangle',
     'Pangle Bidding': 'pangle', 'TikTok': 'pangle',
+}
+
+# Display name mapping - converts AppLovin network names to standard display names
+NETWORK_DISPLAY_NAME_MAP = {
+    # Vungle -> Liftoff
+    'Vungle': 'Liftoff Bidding',
+    'Vungle Bidding': 'Liftoff Bidding',
+    'VUNGLE': 'Liftoff Bidding',
+    'VUNGLE_BIDDING': 'Liftoff Bidding',
+    'Liftoff Monetize Bidding': 'Liftoff Bidding',
+    # Fyber -> DT Exchange
+    'Fyber': 'DT Exchange Bidding',
+    'Fyber Bidding': 'DT Exchange Bidding',
+    'FYBER': 'DT Exchange Bidding',
+    'FYBER_BIDDING': 'DT Exchange Bidding',
+    # Tiktok -> Pangle
+    'TikTok': 'Pangle Bidding',
+    'Tiktok Bidding': 'Pangle Bidding',
+    'TIKTOK': 'Pangle Bidding',
+    'TIKTOK_BIDDING': 'Pangle Bidding',
+    # Facebook -> Meta
+    'Facebook Network': 'Meta Bidding',
+    'Facebook Bidding': 'Meta Bidding',
+    'FACEBOOK': 'Meta Bidding',
+    'FACEBOOK_BIDDING': 'Meta Bidding',
+    # ironSource -> IronSource
+    'ironSource Bidding': 'Ironsource Bidding',
+    'ironSource': 'Ironsource Bidding',
+    # HyprMX
+    'Hyprmx Network': 'HyprMX',
+    'HYPRMX_NETWORK': 'HyprMX',
 }
 
 
@@ -343,8 +386,17 @@ class BackfillManager:
             net_ecpm = 0
             has_network_data = False
             
+            # Special handling for AppLovin's own networks (Applovin Bidding, Applovin Exchange)
+            # For these networks, MAX data IS the network's own data - no separate API needed
+            network_name_lower = network_name.lower()
+            if 'applovin' in network_name_lower:
+                # Use MAX values as network values since AppLovin reports its own data directly
+                net_revenue = row.get('max_revenue', 0)
+                net_impressions = row.get('max_impressions', 0)
+                net_ecpm = row.get('max_ecpm', 0)
+                has_network_data = True
             # Try to get network's platform and ad_type specific data if available
-            if network_key in network_data:
+            elif network_key in network_data:
                 net_data = network_data[network_key]
                 platform_data = net_data.get('platform_data', {}).get(platform, {})
                 ad_data = platform_data.get('ad_data', {}).get(ad_type, {})
@@ -365,9 +417,12 @@ class BackfillManager:
                 rev_delta = 'N/A'
                 cpm_delta = 'N/A'
             
+            # Convert network name to display name (e.g., Fyber -> DT Exchange, Vungle -> Liftoff)
+            display_network_name = NETWORK_DISPLAY_NAME_MAP.get(network_name, network_name)
+            
             comparison_rows.append({
                 'application': app_name,
-                'network': network_name,
+                'network': display_network_name,
                 'ad_type': row.get('ad_type', ''),
                 'max_impressions': row.get('max_impressions', 0),
                 'network_impressions': net_impressions,

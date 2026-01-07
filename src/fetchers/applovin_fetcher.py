@@ -31,11 +31,12 @@ class ApplovinFetcher(NetworkDataFetcher):
         'MINTEGRAL': 'Mintegral Bidding',
         'UNITY': 'Unity Bidding',
         'UNITY_ADS': 'Unity Bidding',
-        'IRONSOURCE': 'IronSource Bidding',
-        'VUNGLE': 'Liftoff Monetize Bidding',
-        'LIFTOFF': 'Liftoff Monetize Bidding',
+        'IRONSOURCE': 'Ironsource Bidding',
+        'VUNGLE': 'Liftoff Bidding',
+        'LIFTOFF': 'Liftoff Bidding',
+        'LIFTOFF_MONETIZE': 'Liftoff Bidding',
         'CHARTBOOST': 'Chartboost Bidding',
-        'INMOBI': 'InMobi Bidding',
+        'INMOBI': 'Inmobi Bidding',
         'PANGLE': 'Pangle Bidding',
         'BYTEDANCE': 'Pangle Bidding',
         'TIKTOK': 'Pangle Bidding',
@@ -44,6 +45,7 @@ class ApplovinFetcher(NetworkDataFetcher):
         'YANDEX': 'Yandex',
         'GOOGLE_AD_MANAGER': 'Google Ad Manager',
         'GOOGLE_AD_MANAGER_NETWORK': 'Google Ad Manager',
+        'GOOGLE': 'Google Bidding',
         'HYPRMX': 'HyprMX',
         'MOLOCO': 'Moloco Bidding',
         'OGURY': 'Ogury',
@@ -51,7 +53,7 @@ class ApplovinFetcher(NetworkDataFetcher):
         'SNAP': 'Snap',
         'FYBER': 'DT Exchange Bidding',
         'DT_EXCHANGE': 'DT Exchange Bidding',
-        'BIDMACHINE': 'BidMachine Bidding',
+        'BIDMACHINE': 'Bidmachine Bidding',
     }
     
     # Application name mapping (package name to display name)
@@ -133,17 +135,16 @@ class ApplovinFetcher(NetworkDataFetcher):
         if not network:
             return 'Unknown'
         
-        # Remove common suffixes
-        network_clean = network.replace('_Bidding', '').replace(' Bidding', '')
-        network_clean = network_clean.replace('_Network', '').replace(' Network', '')
-        network_clean = network_clean.replace('_Exchange', '').replace(' Exchange', '')
+        # Remove common suffixes (case-insensitive)
+        network_upper = network.upper()
+        network_clean = network_upper.replace('_BIDDING', '').replace(' BIDDING', '')
+        network_clean = network_clean.replace('_NETWORK', '').replace(' NETWORK', '')
+        network_clean = network_clean.replace('_EXCHANGE', '').replace(' EXCHANGE', '')
         network_clean = network_clean.strip()
         
-        network_upper = network_clean.upper()
-        
         # Direct mapping
-        if network_upper in self.NETWORK_NAME_MAP:
-            return self.NETWORK_NAME_MAP[network_upper]
+        if network_clean in self.NETWORK_NAME_MAP:
+            return self.NETWORK_NAME_MAP[network_clean]
         
         # Return cleaned title case
         return network_clean.replace('_', ' ').title()
