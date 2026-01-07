@@ -8,7 +8,6 @@ Bu klasör, Network Data Validation System'in BigQuery tablolarının detaylı d
 |-------|-------|----------|
 | [network_comparison.md](network_comparison.md) | `network_comparison` | Ana veri tablosu - tüm karşılaştırma verileri |
 | [sync_metadata.md](sync_metadata.md) | `sync_metadata` | Genel sistem durumu (tek satır) |
-| [network_sync_summary.md](network_sync_summary.md) | `network_sync_summary` | Network bazlı özet |
 | [network_data_availability.md](network_data_availability.md) | `network_data_availability` | Veri güncelliği takibi |
 
 ## 🏗️ Mimari
@@ -28,16 +27,16 @@ Bu klasör, Network Data Validation System'in BigQuery tablolarının detaylı d
 │   - GCS'den direkt okur                                     │
 └───────────────────────────┬─────────────────────────────────┘
                             │
-            ┌───────────────┼───────────────┐
-            │               │               │
-            ▼               ▼               ▼
-    ┌───────────────┐ ┌───────────────┐ ┌───────────────────┐
-    │ sync_metadata │ │network_sync_  │ │network_data_      │
-    │    (View)     │ │   summary     │ │   availability    │
-    │               │ │    (View)     │ │      (View)       │
-    │ Genel durum   │ │ Network özet  │ │ Güncellik takibi  │
-    │ (1 satır)     │ │ (N satır)     │ │ (N satır)         │
-    └───────────────┘ └───────────────┘ └───────────────────┘
+            ┌───────────────────────────────┐
+            │                               │
+            ▼                               ▼
+    ┌───────────────┐               ┌───────────────────┐
+    │ sync_metadata │               │network_data_      │
+    │    (View)     │               │   availability    │
+    │               │               │      (View)       │
+    │ Genel durum   │               │ Güncellik takibi  │
+    │ (1 satır)     │               │ (N satır)         │
+    └───────────────┘               └───────────────────┘
 ```
 
 ## 🎯 Looker Dashboard Yapısı Önerisi
@@ -48,8 +47,8 @@ Bu klasör, Network Data Validation System'in BigQuery tablolarının detaylı d
 │   [Son Sync] [Network Sayısı] [Toplam Kayıt] [Sync Status]  │
 ├─────────────────────────────────────────────────────────────┤
 │   PAGE 1: Overview                                           │
-│   - Network Gelir Karşılaştırma (network_sync_summary)      │
-│   - Delta Dağılımı (network_sync_summary)                   │
+│   - Network Gelir Karşılaştırma (network_comparison)        │
+│   - Delta Dağılımı (network_comparison)                     │
 │   - Veri Güncelliği (network_data_availability)             │
 ├─────────────────────────────────────────────────────────────┤
 │   PAGE 2: Detailed Analysis                                  │

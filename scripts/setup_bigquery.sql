@@ -55,24 +55,6 @@ SELECT
 FROM `gen-lang-client-0468554395.ad_network_analytics.network_comparison`;
 
 
--- Network-level sync summary
-CREATE OR REPLACE VIEW `gen-lang-client-0468554395.ad_network_analytics.network_sync_summary` AS
-SELECT
-    network,
-    COUNT(*) AS record_count,
-    MAX(date) AS last_report_date,
-    MAX(fetched_at) AS last_sync_time,
-    SUM(max_revenue) AS total_max_revenue,
-    SUM(network_revenue) AS total_network_revenue,
-    SAFE_DIVIDE(
-        SUM(network_revenue) - SUM(max_revenue),
-        SUM(max_revenue)
-    ) * 100 AS overall_rev_delta_pct
-FROM `gen-lang-client-0468554395.ad_network_analytics.network_comparison`
-GROUP BY network
-ORDER BY total_max_revenue DESC;
-
-
 -- Optional: Create a view for discrepancy alerts (>5% difference)
 CREATE OR REPLACE VIEW `gen-lang-client-0468554395.ad_network_analytics.discrepancy_alerts` AS
 SELECT
