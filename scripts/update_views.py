@@ -11,22 +11,9 @@ print('Updating sync_metadata view with STRING fields...')
 sql = """
 CREATE OR REPLACE VIEW `gen-lang-client-0468554395.ad_network_analytics.sync_metadata` AS
 SELECT
-    COUNT(DISTINCT network) AS total_networks,
-    COUNT(*) AS total_records,
-    -- Original timestamp fields
-    MAX(date) AS last_report_date,
-    MIN(date) AS first_report_date,
     MAX(fetched_at) AS last_sync_time,
-    -- STRING formatted for Looker scorecards (use these in Text components)
-    CAST(MAX(date) AS STRING) AS last_report_date_str,
-    CAST(MIN(date) AS STRING) AS first_report_date_str,
     FORMAT_TIMESTAMP('%Y-%m-%d %H:%M', MAX(fetched_at)) AS last_sync_str,
-    FORMAT_TIMESTAMP('%d %b %Y %H:%M', MAX(fetched_at)) AS last_sync_display,
-    CONCAT('Report: ', CAST(MAX(date) AS STRING), ' | Sync: ', FORMAT_TIMESTAMP('%H:%M', MAX(fetched_at))) AS status_line,
-    -- Numeric fields
-    TIMESTAMP_DIFF(CURRENT_TIMESTAMP(), MAX(fetched_at), HOUR) AS hours_since_last_sync,
-    ROUND(SUM(max_revenue), 2) AS total_max_revenue,
-    ROUND(SUM(network_revenue), 2) AS total_network_revenue
+    FORMAT_TIMESTAMP('%d %b %Y %H:%M', MAX(fetched_at)) AS last_sync_display
 FROM `gen-lang-client-0468554395.ad_network_analytics.network_comparison`
 """
 client.query(sql).result()
@@ -125,12 +112,10 @@ print('network_data_availability view updated!')
 # Test
 print()
 print('=== Testing sync_metadata ===')
-result = client.query('SELECT last_report_date_str, last_sync_str, last_sync_display, status_line FROM `gen-lang-client-0468554395.ad_network_analytics.sync_metadata`').result()
+result = client.query('SELECT last_sync_str, last_sync_display FROM `gen-lang-client-0468554395.ad_network_analytics.sync_metadata`').result()
 for row in result:
-    print(f'  last_report_date_str: {row.last_report_date_str}')
     print(f'  last_sync_str: {row.last_sync_str}')
     print(f'  last_sync_display: {row.last_sync_display}')
-    print(f'  status_line: {row.status_line}')
 
 print()
 print('=== Testing network_data_availability (sample) ===')

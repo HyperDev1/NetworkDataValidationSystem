@@ -49,14 +49,9 @@ OPTIONS(
 -- Sync metadata summary view for dashboard header
 CREATE OR REPLACE VIEW `gen-lang-client-0468554395.ad_network_analytics.sync_metadata` AS
 SELECT
-    COUNT(DISTINCT network) AS total_networks,
-    COUNT(*) AS total_records,
-    MAX(date) AS last_report_date,
-    MIN(date) AS first_report_date,
     MAX(fetched_at) AS last_sync_time,
-    TIMESTAMP_DIFF(CURRENT_TIMESTAMP(), MAX(fetched_at), HOUR) AS hours_since_last_sync,
-    SUM(max_revenue) AS total_max_revenue,
-    SUM(network_revenue) AS total_network_revenue
+    FORMAT_TIMESTAMP('%Y-%m-%d %H:%M', MAX(fetched_at)) AS last_sync_str,
+    FORMAT_TIMESTAMP('%d %b %Y %H:%M', MAX(fetched_at)) AS last_sync_display
 FROM `gen-lang-client-0468554395.ad_network_analytics.network_comparison`;
 
 
