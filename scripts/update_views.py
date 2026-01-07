@@ -49,62 +49,17 @@ print('network_sync_summary view updated!')
 print('Updating network_data_availability view...')
 sql = """
 CREATE OR REPLACE VIEW `gen-lang-client-0468554395.ad_network_analytics.network_data_availability` AS
-WITH network_delays AS (
-    SELECT 'Mintegral Bidding' as network, 1 as expected_delay_days UNION ALL
-    SELECT 'Unity Bidding', 1 UNION ALL
-    SELECT 'Admob Bidding', 2 UNION ALL
-    SELECT 'Google Bidding', 2 UNION ALL
-    SELECT 'Ironsource Bidding', 1 UNION ALL
-    SELECT 'Meta Bidding', 3 UNION ALL
-    SELECT 'Inmobi Bidding', 1 UNION ALL
-    SELECT 'Moloco Bidding', 1 UNION ALL
-    SELECT 'Bidmachine Bidding', 1 UNION ALL
-    SELECT 'Liftoff Monetize Bidding', 1 UNION ALL
-    SELECT 'Vungle Bidding', 1 UNION ALL
-    SELECT 'Chartboost Bidding', 1 UNION ALL
-    SELECT 'Fyber Bidding', 1 UNION ALL
-    SELECT 'Tiktok Bidding', 1 UNION ALL
-    SELECT 'Pangle Bidding', 1 UNION ALL
-    SELECT 'Applovin Bidding', 0 UNION ALL
-    SELECT 'Applovin Exchange', 0 UNION ALL
-    SELECT 'Google Ad Manager', 2
-),
-network_stats AS (
-    SELECT 
-        network,
-        COUNT(*) as record_count,
-        MAX(date) as last_report_date,
-        MAX(fetched_at) as last_sync_time,
-        ROUND(SUM(max_revenue), 2) as total_max_revenue,
-        ROUND(SUM(network_revenue), 2) as total_network_revenue
-    FROM `gen-lang-client-0468554395.ad_network_analytics.network_comparison`
-    GROUP BY network
-)
 SELECT 
-    ns.network,
-    ns.record_count,
-    ns.last_report_date,
-    ns.last_sync_time,
+    network,
+    COUNT(*) as record_count,
+    MAX(date) as last_report_date,
+    MAX(fetched_at) as last_sync_time,
     -- STRING formatted for display
-    CAST(ns.last_report_date AS STRING) AS last_report_date_str,
-    FORMAT_TIMESTAMP('%Y-%m-%d %H:%M', ns.last_sync_time) AS last_sync_str,
-    -- Delay info
-    COALESCE(nd.expected_delay_days, 1) as expected_delay_days,
-    DATE_SUB(CURRENT_DATE(), INTERVAL COALESCE(nd.expected_delay_days, 1) DAY) as expected_latest_date,
-    CAST(DATE_SUB(CURRENT_DATE(), INTERVAL COALESCE(nd.expected_delay_days, 1) DAY) AS STRING) as expected_latest_date_str,
-    DATE_DIFF(DATE_SUB(CURRENT_DATE(), INTERVAL COALESCE(nd.expected_delay_days, 1) DAY), ns.last_report_date, DAY) as days_behind_expected,
-    -- Status text
-    CASE 
-        WHEN DATE_DIFF(DATE_SUB(CURRENT_DATE(), INTERVAL COALESCE(nd.expected_delay_days, 1) DAY), ns.last_report_date, DAY) <= 0 THEN 'OK'
-        ELSE CONCAT(CAST(DATE_DIFF(DATE_SUB(CURRENT_DATE(), INTERVAL COALESCE(nd.expected_delay_days, 1) DAY), ns.last_report_date, DAY) AS STRING), ' days behind')
-    END AS status,
-    -- Revenue
-    ns.total_max_revenue,
-    ns.total_network_revenue,
-    ROUND(SAFE_DIVIDE(ns.total_network_revenue - ns.total_max_revenue, ns.total_max_revenue) * 100, 2) as overall_rev_delta_pct
-FROM network_stats ns
-LEFT JOIN network_delays nd ON ns.network = nd.network
-ORDER BY ns.total_max_revenue DESC
+    CAST(MAX(date) AS STRING) AS last_report_date_str,
+    FORMAT_TIMESTAMP('%Y-%m-%d %H:%M', MAX(fetched_at)) AS last_sync_str
+FROM `gen-lang-client-0468554395.ad_network_analytics.network_comparison`
+GROUP BY network
+ORDER BY last_report_date DESC
 """
 client.query(sql).result()
 print('network_data_availability view updated!')
@@ -119,9 +74,9 @@ for row in result:
 
 print()
 print('=== Testing network_data_availability (sample) ===')
-result = client.query('SELECT network, last_report_date_str, last_sync_str, status FROM `gen-lang-client-0468554395.ad_network_analytics.network_data_availability` LIMIT 5').result()
+result = client.query('SELECT network, record_count, last_report_date_str, last_sync_str FROM `gen-lang-client-0468554395.ad_network_analytics.network_data_availability` LIMIT 5').result()
 for row in result:
-    print(f'  {row.network}: Report={row.last_report_date_str}, Sync={row.last_sync_str}, Status={row.status}')
+    print(f'  {row.network}: Records={row.record_count}, Report={row.last_report_date_str}, Sync={row.last_sync_str}')
 
 print()
 print('Done! Use *_str fields in Looker Text components or Table columns.')
