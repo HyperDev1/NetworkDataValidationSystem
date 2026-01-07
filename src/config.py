@@ -121,3 +121,7 @@ class Config:
         """Get Pangle API configuration."""
         return self.config.get('networks', {}).get('pangle', {})
 
+    def get_gcp_config(self) -> Dict[str, Any]:
+        """Get Google Cloud Platform configuration for GCS/BigQuery export."""
+        return self.config.get('gcp', {})
+

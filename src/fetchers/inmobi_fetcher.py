@@ -344,5 +344,5 @@ class InMobiFetcher(NetworkDataFetcher):
     
     def get_network_name(self) -> str:
         """Return the name of the network."""
-        return "InMobi"
+        return "InMobi Bidding"
 

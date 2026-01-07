@@ -399,5 +399,5 @@ class AdmobFetcher(NetworkDataFetcher):
     
     def get_network_name(self) -> str:
         """Return the network name."""
-        return "AdMob"
+        return "Google Bidding"
 

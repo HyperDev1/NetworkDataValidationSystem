@@ -9,6 +9,7 @@ __pycache__/
 venv/
 .venv/
 ENV/
+/output
 
 # Credentials (NEVER commit these)
 credentials/
