@@ -40,6 +40,7 @@ class GCSExporter:
         ('rev_delta_pct', pa.float64()),          # Revenue difference percentage
         ('imp_delta_pct', pa.float64()),          # Impressions difference percentage
         ('ecpm_delta_pct', pa.float64()),         # eCPM difference percentage
+        ('hour_range', pa.string()),              # Hour range for hourly data (Meta only, e.g., '00:00-23:00 UTC (24/24)')
         ('fetched_at', pa.timestamp('us')),       # When data was fetched
     ])
     
@@ -138,6 +139,7 @@ class GCSExporter:
         rev_deltas = []
         imp_deltas = []
         ecpm_deltas = []
+        hour_ranges = []
         fetched_ats = []
         
         fetched_at = datetime.utcnow()
@@ -165,6 +167,7 @@ class GCSExporter:
             rev_deltas.append(self._parse_delta(row.get('rev_delta', '')))
             imp_deltas.append(self._parse_delta(row.get('imp_delta', '')))
             ecpm_deltas.append(self._parse_delta(row.get('cpm_delta', '')))
+            hour_ranges.append(row.get('hour_range'))  # Only Meta has this field
             fetched_ats.append(fetched_at)
         
         # Create PyArrow arrays
@@ -183,6 +186,7 @@ class GCSExporter:
             'rev_delta_pct': pa.array(rev_deltas, type=pa.float64()),
             'imp_delta_pct': pa.array(imp_deltas, type=pa.float64()),
             'ecpm_delta_pct': pa.array(ecpm_deltas, type=pa.float64()),
+            'hour_range': pa.array(hour_ranges, type=pa.string()),
             'fetched_at': pa.array(fetched_ats, type=pa.timestamp('us')),
         })
         
@@ -271,6 +275,9 @@ class GCSExporter:
         """
         Export comparison data to Google Cloud Storage.
         
+        Automatically deletes any existing files for the same date to prevent
+        duplicate data in BigQuery external tables.
+        
         Args:
             comparison_rows: List of comparison dictionaries
             report_date: The date the report is for
@@ -282,10 +289,13 @@ class GCSExporter:
             print("⚠️  No data to export")
             return []
         
+        # Delete existing files for this date to prevent duplicates
+        date_str = report_date.strftime('%Y-%m-%d')
+        self._delete_existing_files_for_date(date_str)
+        
         table = self._comparison_rows_to_table(comparison_rows, report_date)
         
         # Generate GCS path
-        date_str = report_date.strftime('%Y-%m-%d')
         timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
         blob_path = f"{self.base_path}/dt={date_str}/comparison_data_{timestamp}.parquet"
         
@@ -310,6 +320,34 @@ class GCSExporter:
             # Clean up temp file
             if os.path.exists(tmp_path):
                 os.remove(tmp_path)
+    
+    def _delete_existing_files_for_date(self, date_str: str) -> int:
+        """
+        Delete all existing parquet files for a specific date.
+        
+        This prevents duplicate data when re-running exports for the same date.
+        
+        Args:
+            date_str: Date string in YYYY-MM-DD format
+            
+        Returns:
+            Number of files deleted
+        """
+        bucket = self._get_bucket()
+        prefix = f"{self.base_path}/dt={date_str}/"
+        
+        blobs = list(bucket.list_blobs(prefix=prefix))
+        deleted_count = 0
+        
+        for blob in blobs:
+            print(f"   🗑️  Deleting existing file: {blob.name}")
+            blob.delete()
+            deleted_count += 1
+        
+        if deleted_count > 0:
+            print(f"   ✅ Deleted {deleted_count} existing file(s) for {date_str}")
+        
+        return deleted_count
     
     def _group_by_network_platform(
         self,

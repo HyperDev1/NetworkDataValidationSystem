@@ -33,6 +33,9 @@ CREATE TABLE IF NOT EXISTS `gen-lang-client-0468554395.ad_network_analytics.netw
     imp_delta_pct FLOAT64 OPTIONS(description="Impressions difference percentage"),
     ecpm_delta_pct FLOAT64 OPTIONS(description="eCPM difference percentage"),
     
+    -- Hourly data metadata (Meta only)
+    hour_range STRING OPTIONS(description="Hour range for hourly aggregated data (Meta only, e.g., '00:00-23:00 UTC (24/24)')"),
+    
     -- Metadata
     fetched_at TIMESTAMP NOT NULL OPTIONS(description="When this data was fetched and recorded")
 )

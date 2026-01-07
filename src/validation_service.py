@@ -331,13 +331,14 @@ class ValidationService:
         end_date = now_utc.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=1)
         start_date = end_date - timedelta(days=date_range_days - 1)
         
-        # Meta has 3-day reporting delay - calculate shifted dates
-        meta_delay_days = 3
-        meta_end_date = end_date - timedelta(days=meta_delay_days)
-        meta_start_date = start_date - timedelta(days=meta_delay_days)
+        # Meta uses hourly aggregation with 1-day delay (instead of 3-day daily delay)
+        # Hourly data is available within 48 hours, so T-1 is safe
+        meta_delay_days = 1  # Changed from 3 to 1 for hourly mode
+        meta_end_date = end_date  # Same as other networks now
+        meta_start_date = start_date
         
         print(f"📅 Date range (UTC): {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}")
-        print(f"📅 Meta date range (UTC, {meta_delay_days}-day delay): {meta_start_date.strftime('%Y-%m-%d')} to {meta_end_date.strftime('%Y-%m-%d')}")
+        print(f"📅 Meta date range (UTC, hourly aggregate mode): {meta_start_date.strftime('%Y-%m-%d')} to {meta_end_date.strftime('%Y-%m-%d')}")
         print("=" * 80)
         
         if not self.applovin_fetcher:
@@ -354,16 +355,9 @@ class ValidationService:
             print(f"   ❌ Error: {str(e)}")
             return {'success': False, 'message': f'Failed to fetch MAX data: {str(e)}'}
         
-        # Step 1b: Fetch MAX data for Meta with shifted date range
-        max_rows_meta = []
-        if 'meta' in self.network_fetchers:
-            print(f"   📥 Fetching MAX data for Meta comparison ({meta_start_date.strftime('%Y-%m-%d')} to {meta_end_date.strftime('%Y-%m-%d')})...")
-            try:
-                max_data_meta = self.applovin_fetcher.fetch_data(meta_start_date, meta_end_date)
-                max_rows_meta = max_data_meta.get('comparison_rows', [])
-                print(f"   ✅ Retrieved {len(max_rows_meta)} rows from MAX for Meta comparison")
-            except Exception as e:
-                print(f"   ⚠️ Could not fetch META comparison data: {str(e)}")
+        # Step 1b: Meta now uses same date range as other networks (hourly aggregate mode)
+        # No separate MAX fetch needed - Meta uses max_rows directly
+        max_rows_meta = max_rows  # Same data since dates are aligned now
         
         # Step 2: Fetch data from each enabled network
         print(f"\n📊 Step 2: Fetching data from individual networks...")
@@ -374,7 +368,10 @@ class ValidationService:
                 print(f"   📥 Fetching {network_name}...")
                 # Use appropriate date range for each network
                 if network_name == 'meta':
-                    data = fetcher.fetch_data(meta_start_date, meta_end_date)
+                    # Use hourly aggregate for Meta (T-1 with hour range tracking)
+                    data = fetcher.fetch_hourly_aggregate(meta_end_date)
+                    hour_range = data.get('hour_range', 'N/A')
+                    print(f"      📊 Meta Hour Range: {hour_range}")
                 else:
                     data = fetcher.fetch_data(start_date, end_date)
                 network_data[network_name] = data
@@ -473,6 +470,11 @@ class ValidationService:
             is_applovin_network = 'applovin' in network_name.lower()
             
             if is_applovin_network:
+                # Skip Applovin networks if we're doing include_networks filter (e.g., Meta-only pass)
+                # This prevents Applovin from being added twice
+                if include_networks:
+                    continue
+                    
                 # Use MAX values as network values since AppLovin reports its own data directly
                 net_revenue = row.get('max_revenue', 0)
                 net_impressions = row.get('max_impressions', 0)
@@ -510,6 +512,11 @@ class ValidationService:
             # Get display name for network (convert Vungle -> Liftoff etc.)
             display_network = self.NETWORK_DISPLAY_NAME_MAP.get(row['network'], row['network'])
             
+            # Get hour_range for Meta (hourly aggregate mode)
+            hour_range = None
+            if network_key == 'meta' and network_key in network_data:
+                hour_range = network_data[network_key].get('hour_range')
+            
             comparison_rows.append({
                 'application': row['application'],
                 'network': display_network,
@@ -523,6 +530,7 @@ class ValidationService:
                 'max_ecpm': row['max_ecpm'],
                 'network_ecpm': net_ecpm,
                 'cpm_delta': cpm_delta,
+                'hour_range': hour_range,  # Only populated for Meta (hourly aggregate)
             })
         
         # Sort by application, then network
