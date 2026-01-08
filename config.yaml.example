@@ -91,6 +91,10 @@ pangle:
 slack:
   webhook_url: "YOUR_SLACK_WEBHOOK_URL"
   channel: "#revenue-alerts"
+  # Revenue delta threshold for Slack notifications (absolute value in %)
+  # Only app/ad_type rows with |rev_delta| > threshold will be shown
+  # Set to 0 to show all rows
+  revenue_delta_threshold: 5.0
   
 # Validation Settings
 validation:

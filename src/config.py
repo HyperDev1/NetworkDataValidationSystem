@@ -60,6 +60,17 @@ class Config:
         """Get Slack configuration."""
         return self.config.get('slack', {})
     
+    def get_slack_revenue_delta_threshold(self) -> float:
+        """
+        Get revenue delta threshold for Slack notifications.
+        Only rows with |rev_delta| > threshold will be shown in Slack.
+        
+        Returns:
+            Threshold percentage (default: 5.0)
+        """
+        slack_config = self.get_slack_config()
+        return float(slack_config.get('revenue_delta_threshold', 5.0))
+    
     def get_validation_config(self) -> Dict[str, Any]:
         """Get validation/report settings."""
         return self.config.get('validation', {})

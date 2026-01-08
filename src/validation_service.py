@@ -585,37 +585,54 @@ class ValidationService:
         
         return "\n".join(lines)
     
+    def _parse_delta_percentage(self, delta_str: str) -> float:
+        """
+        Parse delta percentage string to float.
+        
+        Args:
+            delta_str: Delta string like "+5.2%", "-3.1%", "+∞%", "0.0%"
+            
+        Returns:
+            Float value of delta (e.g., 5.2, -3.1, inf)
+        """
+        if not delta_str:
+            return 0.0
+        
+        # Remove % sign and whitespace
+        delta_str = delta_str.strip().rstrip('%')
+        
+        # Handle infinity case
+        if '∞' in delta_str or 'inf' in delta_str.lower():
+            return float('inf') if '+' in delta_str or delta_str.startswith('∞') else float('-inf')
+        
+        try:
+            return float(delta_str)
+        except ValueError:
+            return 0.0
+    
     def _send_slack_report(self, comparison_rows: List[Dict], totals: Dict, start_date: datetime, end_date: datetime, network_data: Dict[str, Any] = None) -> bool:
-        """Send Network Comparison report to Slack with separate blocks per network."""
+        """Send Network Comparison report to Slack with separate blocks per network.
+        
+        Only shows app/ad_type rows where |rev_delta| > threshold (default 5%).
+        If all rows are below threshold, sends a summary "all normal" message.
+        """
         from datetime import timezone
         
-        blocks = []
+        # Get revenue delta threshold from config
+        threshold = self.config.get_slack_revenue_delta_threshold()
         
-        # Header
-        blocks.append({
-            "type": "header",
-            "text": {"type": "plain_text", "text": "📊 Network Comparison Report", "emoji": True}
-        })
-        
-        # Generated date
-        now_utc = datetime.now(timezone.utc)
-        blocks.append({
-            "type": "context",
-            "elements": [{
-                "type": "mrkdwn",
-                "text": f"📅 *Generated:* {now_utc.strftime('%Y-%m-%d %H:%M:%S')} UTC"
-            }]
-        })
-        
-        blocks.append({"type": "divider"})
-        
-        # Group rows by network
-        networks = {}
+        # Filter rows by revenue delta threshold (app/ad_type level)
+        total_rows = len(comparison_rows)
+        filtered_rows = []
         for row in comparison_rows:
-            network_name = row['network']
-            if network_name not in networks:
-                networks[network_name] = []
-            networks[network_name].append(row)
+            rev_delta_value = self._parse_delta_percentage(row.get('rev_delta', '0%'))
+            if abs(rev_delta_value) > threshold:
+                filtered_rows.append(row)
+        
+        filtered_count = len(filtered_rows)
+        
+        blocks = []
+        now_utc = datetime.now(timezone.utc)
         
         # Network icons mapping
         network_icons = {
@@ -637,13 +654,84 @@ class ValidationService:
             'TIKTOK_BIDDING': '🎯',
         }
         
-        # Create separate block for each network
+        # If no rows exceed threshold, send "all normal" message
+        if not filtered_rows:
+            blocks.append({
+                "type": "header",
+                "text": {"type": "plain_text", "text": "✅ Network Comparison Report - All Normal", "emoji": True}
+            })
+            
+            blocks.append({
+                "type": "context",
+                "elements": [{
+                    "type": "mrkdwn",
+                    "text": f"📅 *Generated:* {now_utc.strftime('%Y-%m-%d %H:%M:%S')} UTC"
+                }]
+            })
+            
+            blocks.append({"type": "divider"})
+            
+            # Calculate overall totals
+            overall_max_rev = totals.get('max_revenue', 0)
+            overall_net_rev = totals.get('network_revenue', 0)
+            overall_rev_delta = ((overall_net_rev - overall_max_rev) / overall_max_rev * 100) if overall_max_rev > 0 else 0
+            
+            blocks.append({
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"✅ *Tüm network'ler normal*\n\n"
+                            f"Revenue delta threshold: *±{threshold}%*\n"
+                            f"Toplam {total_rows} satır kontrol edildi, hiçbiri threshold'u aşmadı.\n\n"
+                            f"💰 *Toplam:* MAX ${overall_max_rev:,.2f} → Network ${overall_net_rev:,.2f} ({overall_rev_delta:+.1f}%)"
+                }
+            })
+            
+            payload = {"blocks": blocks}
+            if self.notifier.channel:
+                payload["channel"] = self.notifier.channel
+            
+            return self.notifier._send_to_slack(payload)
+        
+        # Group filtered rows by network
+        networks = {}
+        for row in filtered_rows:
+            network_name = row['network']
+            if network_name not in networks:
+                networks[network_name] = []
+            networks[network_name].append(row)
+        
+        # Count affected networks
+        affected_networks = len(networks)
+        total_networks = len(set(r['network'] for r in comparison_rows))
+        
+        # Header with alert
+        blocks.append({
+            "type": "header",
+            "text": {"type": "plain_text", "text": "⚠️ Network Comparison Report - Threshold Aşıldı", "emoji": True}
+        })
+        
+        # Context with summary
+        blocks.append({
+            "type": "context",
+            "elements": [{
+                "type": "mrkdwn",
+                "text": f"📅 *Generated:* {now_utc.strftime('%Y-%m-%d %H:%M:%S')} UTC | "
+                        f"⚠️ *{filtered_count}/{total_rows}* satır threshold (±{threshold}%) aştı | "
+                        f"📡 *{affected_networks}/{total_networks}* network etkilendi"
+            }]
+        })
+        
+        blocks.append({"type": "divider"})
+        
+        # Create separate block for each network (only affected networks)
         for network_name, rows in networks.items():
-            # Calculate network totals
-            network_max_rev = sum(r['max_revenue'] for r in rows)
-            network_net_rev = sum(r['network_revenue'] for r in rows)
-            network_max_imps = sum(r['max_impressions'] for r in rows)
-            network_net_imps = sum(r['network_impressions'] for r in rows)
+            # Calculate network totals (from ALL rows, not just filtered)
+            all_network_rows = [r for r in comparison_rows if r['network'] == network_name]
+            network_max_rev = sum(r['max_revenue'] for r in all_network_rows)
+            network_net_rev = sum(r['network_revenue'] for r in all_network_rows)
+            network_max_imps = sum(r['max_impressions'] for r in all_network_rows)
+            network_net_imps = sum(r['network_impressions'] for r in all_network_rows)
             
             rev_delta = ((network_net_rev - network_max_rev) / network_max_rev * 100) if network_max_rev > 0 else 0
             imp_delta = ((network_net_imps - network_max_imps) / network_max_imps * 100) if network_max_imps > 0 else 0
@@ -664,16 +752,16 @@ class ValidationService:
                     if net_start and net_end:
                         network_date_info = f"\n📅 Network Date: {net_start} to {net_end}"
             
-            # Network section header
+            # Network section header with threshold info
             blocks.append({
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": f"{icon} *{network_name}*{network_date_info}\n💰 MAX: ${network_max_rev:,.2f} → Network: ${network_net_rev:,.2f} ({rev_delta:+.1f}%)\n📈 Imps: {network_max_imps:,} → {network_net_imps:,} ({imp_delta:+.1f}%)"
+                    "text": f"{icon} *{network_name}* ({len(rows)}/{len(all_network_rows)} satır threshold aştı){network_date_info}\n💰 MAX: ${network_max_rev:,.2f} → Network: ${network_net_rev:,.2f} ({rev_delta:+.1f}%)\n📈 Imps: {network_max_imps:,} → {network_net_imps:,} ({imp_delta:+.1f}%)"
                 }
             })
             
-            # Build table for this network
+            # Build table for this network (only filtered rows)
             table_lines = []
             table_lines.append(f"{'Application':<28} │ {'Ad Type':<12} │ {'MAX Imps':>10} │ {'Net Imps':>10} │ {'Imp Δ':>8} │ {'MAX Rev':>10} │ {'Net Rev':>10} │ {'Rev Δ':>8} │ {'MAX CPM':>8} │ {'Net CPM':>8} │ {'CPM Δ':>8}")
             table_lines.append("─" * 155)
