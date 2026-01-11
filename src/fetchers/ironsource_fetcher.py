@@ -1,13 +1,19 @@
 """
 IronSource Monetization Reporting API data fetcher implementation.
+Async version using aiohttp with retry support.
 Uses IronSource Reporting API V5 for fetching monetization data.
 API Docs: https://developers.is.com/ironsource-mobile/air/monetization-reporting-api
 """
 import base64
-import requests
+import logging
 from datetime import datetime
 from typing import Dict, Any, Optional, List
-from .base_fetcher import NetworkDataFetcher
+
+from .base_fetcher import NetworkDataFetcher, FetchResult
+from ..enums import Platform, AdType, NetworkName
+
+
+logger = logging.getLogger(__name__)
 
 
 class IronSourceFetcher(NetworkDataFetcher):
@@ -17,18 +23,17 @@ class IronSourceFetcher(NetworkDataFetcher):
     BASE_URL = "https://platform.ironsrc.com"
     REPORT_ENDPOINT = "/partners/publisher/mediation/applications/v5/stats"
     
-    # Ad type mapping - IronSource adUnits to our standard categories
-    # Note: Offerwall is excluded as per requirements
+    # Ad type mapping - IronSource adUnits to AdType enum
     AD_TYPE_MAP = {
-        'Rewarded Video': 'rewarded',
-        'rewardedVideo': 'rewarded',
-        'REWARDED_VIDEO': 'rewarded',
-        'Interstitial': 'interstitial',
-        'interstitial': 'interstitial',
-        'INTERSTITIAL': 'interstitial',
-        'Banner': 'banner',
-        'banner': 'banner',
-        'BANNER': 'banner',
+        'Rewarded Video': AdType.REWARDED,
+        'rewardedVideo': AdType.REWARDED,
+        'REWARDED_VIDEO': AdType.REWARDED,
+        'Interstitial': AdType.INTERSTITIAL,
+        'interstitial': AdType.INTERSTITIAL,
+        'INTERSTITIAL': AdType.INTERSTITIAL,
+        'Banner': AdType.BANNER,
+        'banner': AdType.BANNER,
+        'BANNER': AdType.BANNER,
     }
     
     # Supported ad units filter (excluding Offerwall)
@@ -50,6 +55,7 @@ class IronSourceFetcher(NetworkDataFetcher):
             android_app_keys: Comma-separated Android app keys
             ios_app_keys: Comma-separated iOS app keys
         """
+        super().__init__()
         self.username = username
         self.secret_key = secret_key
         self.android_app_keys = [k.strip() for k in android_app_keys.split(',') if k.strip()] if android_app_keys else []
@@ -70,28 +76,25 @@ class IronSourceFetcher(NetworkDataFetcher):
             'Accept': 'application/json',
         }
     
-    def _create_empty_platform_data(self) -> Dict[str, Any]:
-        """Create empty platform data structure."""
-        return {
-            'revenue': 0.0,
-            'impressions': 0,
-            'ecpm': 0.0,
-            'requests': 0,
-            'fills': 0,
-            'clicks': 0,
-            'ad_data': {
-                'banner': {'revenue': 0.0, 'impressions': 0, 'ecpm': 0.0, 'requests': 0, 'fills': 0, 'clicks': 0},
-                'interstitial': {'revenue': 0.0, 'impressions': 0, 'ecpm': 0.0, 'requests': 0, 'fills': 0, 'clicks': 0},
-                'rewarded': {'revenue': 0.0, 'impressions': 0, 'ecpm': 0.0, 'requests': 0, 'fills': 0, 'clicks': 0},
-            }
-        }
+    def _create_extended_platform_data(self) -> Dict[str, Any]:
+        """Create empty platform data structure with extended metrics."""
+        base = self._init_platform_data()
+        for platform in base:
+            base[platform]['requests'] = 0
+            base[platform]['fills'] = 0
+            base[platform]['clicks'] = 0
+            for ad_type in base[platform]['ad_data']:
+                base[platform]['ad_data'][ad_type]['requests'] = 0
+                base[platform]['ad_data'][ad_type]['fills'] = 0
+                base[platform]['ad_data'][ad_type]['clicks'] = 0
+        return base
     
-    def _fetch_platform_data(
+    async def _fetch_platform_data(
         self,
         start_date: str,
         end_date: str,
         app_keys: List[str],
-        platform: str
+        platform: Platform
     ) -> Dict[str, Any]:
         """
         Fetch data for a specific platform's app keys.
@@ -100,12 +103,26 @@ class IronSourceFetcher(NetworkDataFetcher):
             start_date: Start date in YYYY-MM-DD format
             end_date: End date in YYYY-MM-DD format
             app_keys: List of app keys for this platform
-            platform: Platform name ('android' or 'ios')
+            platform: Platform enum
             
         Returns:
             Platform data dictionary
         """
-        platform_data = self._create_empty_platform_data()
+        platform_data = {
+            'revenue': 0.0,
+            'impressions': 0,
+            'ecpm': 0.0,
+            'requests': 0,
+            'fills': 0,
+            'clicks': 0,
+            'ad_data': self._init_ad_data()
+        }
+        
+        # Add extended fields to ad_data
+        for ad_type in platform_data['ad_data']:
+            platform_data['ad_data'][ad_type]['requests'] = 0
+            platform_data['ad_data'][ad_type]['fills'] = 0
+            platform_data['ad_data'][ad_type]['clicks'] = 0
         
         if not app_keys:
             return platform_data
@@ -113,7 +130,6 @@ class IronSourceFetcher(NetworkDataFetcher):
         headers = self._get_auth_headers()
         
         # Build query parameters
-        # Request data for all app keys at once (comma-separated)
         params = {
             'startDate': start_date,
             'endDate': end_date,
@@ -125,52 +141,18 @@ class IronSourceFetcher(NetworkDataFetcher):
         
         url = f"{self.BASE_URL}{self.REPORT_ENDPOINT}"
         
-        response = requests.get(
-            url,
-            headers=headers,
-            params=params,
-            timeout=60
-        )
-        
-        if response.status_code == 401:
-            error_detail = ""
-            try:
-                error_detail = f" Response: {response.text[:200]}"
-            except:
-                pass
-            raise Exception(
-                f"IronSource authentication failed (401).{error_detail} "
-                "Please check your username (email) and secret_key in config.yaml"
-            )
-        
-        if response.status_code != 200:
-            error_msg = f"IronSource API error: {response.status_code}"
-            try:
-                error_data = response.json()
-                error_msg += f" - {error_data}"
-            except:
-                error_msg += f" - {response.text[:500]}"
-            raise Exception(error_msg)
-        
-        # Parse response - IronSource returns JSON array at root level
         try:
-            data = response.json()
+            data = await self._get_json(url, headers=headers, params=params)
         except Exception as e:
-            raise Exception(f"Failed to parse IronSource response: {e}")
-        
-        # Response format:
-        # [
-        #   {
-        #     "adUnits": "Rewarded Video",
-        #     "date": "2018-08-01",
-        #     "data": [
-        #       { "revenue": 71188.8, "impressions": 13321624, "eCPM": 5.34, "clicks": 0 }
-        #     ]
-        #   }
-        # ]
+            error_msg = str(e)
+            if '401' in error_msg:
+                raise Exception(
+                    f"IronSource authentication failed (401). "
+                    "Please check your username (email) and secret_key in config.yaml"
+                )
+            raise Exception(f"IronSource API error: {error_msg}")
         
         if not isinstance(data, list):
-            # Might be an error object
             if isinstance(data, dict) and ('error' in data or 'message' in data):
                 raise Exception(f"IronSource API error: {data}")
             return platform_data
@@ -180,13 +162,13 @@ class IronSourceFetcher(NetworkDataFetcher):
                 continue
             
             ad_units_raw = item.get('adUnits', '')
-            ad_type = self.AD_TYPE_MAP.get(ad_units_raw, None)
+            ad_type = self.AD_TYPE_MAP.get(ad_units_raw)
             
             # Skip unsupported ad types (e.g., Offerwall)
             if ad_type is None:
                 continue
             
-            # Extract metrics from nested 'data' array
+            ad_key = ad_type.value
             metrics_list = item.get('data', [])
             
             for metrics in metrics_list:
@@ -207,24 +189,22 @@ class IronSourceFetcher(NetworkDataFetcher):
                 platform_data['fills'] += fls
                 
                 # Aggregate by ad type
-                platform_data['ad_data'][ad_type]['revenue'] += rev
-                platform_data['ad_data'][ad_type]['impressions'] += imps
-                platform_data['ad_data'][ad_type]['clicks'] += clks
-                platform_data['ad_data'][ad_type]['requests'] += reqs
-                platform_data['ad_data'][ad_type]['fills'] += fls
+                platform_data['ad_data'][ad_key]['revenue'] += rev
+                platform_data['ad_data'][ad_key]['impressions'] += imps
+                platform_data['ad_data'][ad_key]['clicks'] += clks
+                platform_data['ad_data'][ad_key]['requests'] += reqs
+                platform_data['ad_data'][ad_key]['fills'] += fls
         
         # Calculate eCPMs
-        if platform_data['impressions'] > 0:
-            platform_data['ecpm'] = (platform_data['revenue'] / platform_data['impressions']) * 1000
+        platform_data['ecpm'] = self._calculate_ecpm(platform_data['revenue'], platform_data['impressions'])
         
-        for ad_type in ['banner', 'interstitial', 'rewarded']:
-            ad_data = platform_data['ad_data'][ad_type]
-            if ad_data['impressions'] > 0:
-                ad_data['ecpm'] = (ad_data['revenue'] / ad_data['impressions']) * 1000
+        for ad_key in platform_data['ad_data']:
+            ad_data = platform_data['ad_data'][ad_key]
+            ad_data['ecpm'] = self._calculate_ecpm(ad_data['revenue'], ad_data['impressions'])
         
         return platform_data
     
-    def fetch_data(self, start_date: datetime, end_date: datetime) -> Dict[str, Any]:
+    async def fetch_data(self, start_date: datetime, end_date: datetime) -> FetchResult:
         """
         Fetch revenue and impression data for the given date range.
         
@@ -233,62 +213,63 @@ class IronSourceFetcher(NetworkDataFetcher):
             end_date: End date for data fetch
             
         Returns:
-            Dictionary containing revenue and impressions data
+            FetchResult containing revenue and impressions data
         """
-        # Format dates as YYYY-MM-DD
         start_str = start_date.strftime('%Y-%m-%d')
         end_str = end_date.strftime('%Y-%m-%d')
         
-        # Initialize result structure
-        result = {
-            'revenue': 0.0,
-            'impressions': 0,
-            'ecpm': 0.0,
-            'requests': 0,
-            'fills': 0,
-            'clicks': 0,
-            'network': self.get_network_name(),
-            'date_range': {'start': start_str, 'end': end_str},
-            'platform_data': {
-                'android': self._create_empty_platform_data(),
-                'ios': self._create_empty_platform_data(),
-            }
-        }
+        # Initialize platform data
+        platform_data = self._create_extended_platform_data()
+        
+        total_revenue = 0.0
+        total_impressions = 0
+        total_clicks = 0
+        total_requests = 0
+        total_fills = 0
         
         # Fetch data for Android apps
         if self.android_app_keys:
-            android_data = self._fetch_platform_data(
-                start_str, end_str, self.android_app_keys, 'android'
+            android_data = await self._fetch_platform_data(
+                start_str, end_str, self.android_app_keys, Platform.ANDROID
             )
-            result['platform_data']['android'] = android_data
+            platform_data[Platform.ANDROID.value] = android_data
             
-            # Add to totals
-            result['revenue'] += android_data['revenue']
-            result['impressions'] += android_data['impressions']
-            result['clicks'] += android_data['clicks']
-            result['requests'] += android_data['requests']
-            result['fills'] += android_data['fills']
+            total_revenue += android_data['revenue']
+            total_impressions += android_data['impressions']
+            total_clicks += android_data['clicks']
+            total_requests += android_data['requests']
+            total_fills += android_data['fills']
         
         # Fetch data for iOS apps
         if self.ios_app_keys:
-            ios_data = self._fetch_platform_data(
-                start_str, end_str, self.ios_app_keys, 'ios'
+            ios_data = await self._fetch_platform_data(
+                start_str, end_str, self.ios_app_keys, Platform.IOS
             )
-            result['platform_data']['ios'] = ios_data
+            platform_data[Platform.IOS.value] = ios_data
             
-            # Add to totals
-            result['revenue'] += ios_data['revenue']
-            result['impressions'] += ios_data['impressions']
-            result['clicks'] += ios_data['clicks']
-            result['requests'] += ios_data['requests']
-            result['fills'] += ios_data['fills']
+            total_revenue += ios_data['revenue']
+            total_impressions += ios_data['impressions']
+            total_clicks += ios_data['clicks']
+            total_requests += ios_data['requests']
+            total_fills += ios_data['fills']
         
-        # Calculate overall eCPM
-        if result['impressions'] > 0:
-            result['ecpm'] = (result['revenue'] / result['impressions']) * 1000
+        # Build result
+        result = self._build_result(
+            start_date, end_date,
+            revenue=total_revenue,
+            impressions=total_impressions,
+            platform_data=platform_data,
+            requests=total_requests,
+            fills=total_fills,
+            clicks=total_clicks
+        )
         
         return result
     
     def get_network_name(self) -> str:
         """Return the name of the network."""
-        return "IronSource Bidding"
+        return NetworkName.IRONSOURCE.display_name
+    
+    def get_network_enum(self) -> NetworkName:
+        """Return the NetworkName enum."""
+        return NetworkName.IRONSOURCE

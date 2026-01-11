@@ -341,13 +341,17 @@ python -c "from src.config import Config; c = Config(); print(c.get_yeninetwork_
 ```python
 """
 YeniNetwork data fetcher implementation.
+Async version using aiohttp with retry support.
 API Docs: [API döküman URL'i]
 """
-import json
-import requests
+import logging
 from datetime import datetime
 from typing import Dict, Any
-from .base_fetcher import NetworkDataFetcher
+
+from .base_fetcher import NetworkDataFetcher, FetchResult
+from ..enums import Platform, AdType, NetworkName
+
+logger = logging.getLogger(__name__)
 
 
 class YeniNetworkFetcher(NetworkDataFetcher):
@@ -357,12 +361,28 @@ class YeniNetworkFetcher(NetworkDataFetcher):
     AUTH_ENDPOINT = "/v1/auth/tokens"  # varsa
     REPORT_ENDPOINT = "/v1/reports/summary"
     
+    # Enum-based mappings
+    PLATFORM_MAP = {
+        'ANDROID': Platform.ANDROID,
+        'android': Platform.ANDROID,
+        'IOS': Platform.IOS,
+        'ios': Platform.IOS,
+    }
+    
+    AD_TYPE_MAP = {
+        'BANNER': AdType.BANNER,
+        'INTERSTITIAL': AdType.INTERSTITIAL,
+        'REWARDED': AdType.REWARDED,
+        'REWARDED_VIDEO': AdType.REWARDED,
+    }
+    
     def __init__(self, api_key: str, publisher_id: str):
         """Initialize YeniNetwork fetcher."""
+        super().__init__()  # ⚠️ Zorunlu - aiohttp session oluşturur
         self.api_key = api_key
         self.publisher_id = publisher_id
         
-    def _test_auth(self) -> bool:
+    async def _test_auth(self) -> bool:
         """Test authentication - DEBUG METHOD."""
         print("\n" + "="*60)
         print("🔐 AUTH TEST")
@@ -375,42 +395,38 @@ class YeniNetworkFetcher(NetworkDataFetcher):
         
         print(f"\n📤 REQUEST:")
         print(f"   URL: {self.BASE_URL}{self.AUTH_ENDPOINT}")
-        print(f"   Headers: {json.dumps({k: '***' if 'auth' in k.lower() else v for k, v in headers.items()}, indent=2)}")
         
         try:
-            response = requests.get(
+            # Base class async method kullan
+            response = await self._get_json(
                 f"{self.BASE_URL}{self.AUTH_ENDPOINT}",
-                headers=headers,
-                timeout=30
+                headers=headers
             )
             
             print(f"\n📥 RESPONSE:")
-            print(f"   Status: {response.status_code}")
-            
-            try:
-                response_json = response.json()
-                print(f"   Body:\n{json.dumps(response_json, indent=2)}")
-            except:
-                print(f"   Body (raw): {response.text[:500]}")
-            
-            return response.status_code == 200
+            print(f"   Success! Data received.")
+            return True
             
         except Exception as e:
             print(f"\n❌ ERROR: {e}")
             return False
     
-    def fetch_data(self, start_date: datetime, end_date: datetime) -> Dict[str, Any]:
+    async def fetch_data(self, start_date: datetime, end_date: datetime) -> FetchResult:
         """Placeholder - will implement after auth test."""
         raise NotImplementedError("Implement after auth test passes")
     
     def get_network_name(self) -> str:
-        return "YeniNetwork"
+        return NetworkName.YENINETWORK.display_name
+    
+    def get_network_enum(self) -> NetworkName:
+        return NetworkName.YENINETWORK
 ```
 
 **2.2. Test script oluştur:** `test_yeninetwork.py`
 
 ```python
-"""Test script for YeniNetwork fetcher - Auth Test."""
+"""Test script for YeniNetwork fetcher - Auth Test (Async)."""
+import asyncio
 import sys
 import io
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
@@ -418,7 +434,7 @@ sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='repla
 from src.config import Config
 from src.fetchers.yeninetwork_fetcher import YeniNetworkFetcher
 
-def main():
+async def main():
     print("="*60)
     print("🧪 YENINETWORK AUTH TEST")
     print("="*60)
@@ -445,18 +461,22 @@ def main():
         publisher_id=network_config['publisher_id']
     )
     
-    # Run auth test
-    success = fetcher._test_auth()
-    
-    print("\n" + "="*60)
-    if success:
-        print("✅ AUTH TEST PASSED")
-    else:
-        print("❌ AUTH TEST FAILED")
-    print("="*60)
+    try:
+        # Run async auth test
+        success = await fetcher._test_auth()
+        
+        print("\n" + "="*60)
+        if success:
+            print("✅ AUTH TEST PASSED")
+        else:
+            print("❌ AUTH TEST FAILED")
+        print("="*60)
+    finally:
+        # Önemli: Session'u kapat
+        await fetcher.close()
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
 ```
 
 **2.3. src/fetchers/__init__.py'a import ekle:**
@@ -513,7 +533,7 @@ Auth başarılıysa, report endpoint'ini test et:
 **3.1. Fetcher'a report test method ekle:**
 
 ```python
-def _test_report_request(self, start_date: datetime, end_date: datetime) -> Dict:
+async def _test_report_request(self, start_date: datetime, end_date: datetime) -> Dict:
     """Test report request - DEBUG METHOD."""
     print("\n" + "="*60)
     print("📊 REPORT REQUEST TEST")
@@ -539,28 +559,21 @@ def _test_report_request(self, start_date: datetime, end_date: datetime) -> Dict
     print(f"\n📤 REQUEST:")
     print(f"   URL: {self.BASE_URL}{self.REPORT_ENDPOINT}")
     print(f"   Method: POST")
+    import json
     print(f"   Payload:\n{json.dumps(payload, indent=2)}")
     
     try:
-        response = requests.post(
+        # Base class async method kullan
+        response_json = await self._post_json(
             f"{self.BASE_URL}{self.REPORT_ENDPOINT}",
             headers=headers,
-            json=payload,
-            timeout=60
+            json=payload
         )
         
         print(f"\n📥 RESPONSE:")
-        print(f"   Status: {response.status_code}")
+        print(f"   Body:\n{json.dumps(response_json, indent=2)[:2000]}")
+        return response_json
         
-        try:
-            response_json = response.json()
-            # Pretty print full response
-            print(f"   Body:\n{json.dumps(response_json, indent=2)}")
-            return response_json
-        except:
-            print(f"   Body (raw): {response.text[:1000]}")
-            return {}
-            
     except Exception as e:
         print(f"\n❌ ERROR: {e}")
         import traceback
@@ -573,35 +586,45 @@ def _test_report_request(self, start_date: datetime, end_date: datetime) -> Dict
 ```python
 from datetime import datetime, timedelta
 
-# ... önceki kod ...
+async def main():
+    # ... önceki kod ...
+    
+    try:
+        # Run auth test
+        success = await fetcher._test_auth()
+        
+        # Run report test (after auth)
+        if success:
+            end_date = datetime.utcnow() - timedelta(days=1)
+            start_date = end_date
+            
+            print(f"\n📅 Date Range: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}")
+            
+            response_data = await fetcher._test_report_request(start_date, end_date)
+            
+            if response_data:
+                print("\n" + "="*60)
+                print("📋 RESPONSE STRUCTURE ANALYSIS")
+                print("="*60)
+                
+                # Analyze response structure
+                def analyze_structure(obj, prefix=""):
+                    if isinstance(obj, dict):
+                        for key, value in obj.items():
+                            print(f"{prefix}{key}: {type(value).__name__}")
+                            if isinstance(value, (dict, list)) and value:
+                                analyze_structure(value, prefix + "  ")
+                    elif isinstance(obj, list) and obj:
+                        print(f"{prefix}[0]: {type(obj[0]).__name__}")
+                        if isinstance(obj[0], dict):
+                            analyze_structure(obj[0], prefix + "  ")
+                
+                analyze_structure(response_data)
+    finally:
+        await fetcher.close()
 
-# Run report test (after auth)
-if success:
-    end_date = datetime.utcnow() - timedelta(days=1)
-    start_date = end_date
-    
-    print(f"\n📅 Date Range: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}")
-    
-    response_data = fetcher._test_report_request(start_date, end_date)
-    
-    if response_data:
-        print("\n" + "="*60)
-        print("📋 RESPONSE STRUCTURE ANALYSIS")
-        print("="*60)
-        
-        # Analyze response structure
-        def analyze_structure(obj, prefix=""):
-            if isinstance(obj, dict):
-                for key, value in obj.items():
-                    print(f"{prefix}{key}: {type(value).__name__}")
-                    if isinstance(value, (dict, list)) and value:
-                        analyze_structure(value, prefix + "  ")
-            elif isinstance(obj, list) and obj:
-                print(f"{prefix}[0]: {type(obj[0]).__name__}")
-                if isinstance(obj[0], dict):
-                    analyze_structure(obj[0], prefix + "  ")
-        
-        analyze_structure(response_data)
+if __name__ == "__main__":
+    asyncio.run(main())
 ```
 
 **✅ Checkpoint:** Report test çalıştır
@@ -622,82 +645,86 @@ python test_yeninetwork.py
 
 Response yapısını anladıktan sonra, mapping'leri implement et:
 
-**4.1. Fetcher'a mapping constant'ları ekle:**
+**4.1. Fetcher'a enum-based mapping constant'ları ekle:**
 
 ```python
-# Response'dan çıkardığın değerlere göre ayarla
+from src.enums import Platform, AdType, NetworkName
+
+# Response'dan çıkardığın değerlere göre ayarla (enum kullan!)
 PLATFORM_MAP = {
-    'ANDROID': 'android',
-    'IOS': 'ios',
+    'ANDROID': Platform.ANDROID,
+    'IOS': Platform.IOS,
+    'android': Platform.ANDROID,
+    'ios': Platform.IOS,
     # API'nin döndürdüğü diğer değerler...
 }
 
 AD_TYPE_MAP = {
-    'BANNER': 'banner',
-    'INTERSTITIAL': 'interstitial',
-    'REWARDED_VIDEO': 'rewarded',
-    'REWARDED': 'rewarded',
+    'BANNER': AdType.BANNER,
+    'INTERSTITIAL': AdType.INTERSTITIAL,
+    'REWARDED_VIDEO': AdType.REWARDED,
+    'REWARDED': AdType.REWARDED,
     # API'nin döndürdüğü diğer değerler...
 }
 ```
 
-**4.2. Data parsing method ekle:**
+**4.2. Base class helper'ları kullanarak data parsing:**
 
 ```python
-def _parse_response(self, response_data: Dict) -> Dict[str, Any]:
-    """Parse API response to standard format with debug output."""
-    print("\n" + "="*60)
-    print("🔄 PARSING RESPONSE")
-    print("="*60)
+async def fetch_data(self, start_date: datetime, end_date: datetime) -> FetchResult:
+    """Fetch data using base class helpers."""
     
-    # Initialize result structure
-    result = {
-        'revenue': 0.0,
-        'impressions': 0,
-        'ecpm': 0.0,
-        'network': self.get_network_name(),
-        'platform_data': {
-            'android': self._create_empty_platform_data(),
-            'ios': self._create_empty_platform_data(),
-        }
-    }
+    # Base class helper'ları ile initialize
+    ad_data = self._init_ad_data()
+    platform_data = self._init_platform_data()
     
-    # Get data array (adjust key based on response structure)
-    data_rows = response_data.get('data', [])  # veya 'rows', 'results'
-    print(f"\n📊 Found {len(data_rows)} rows to process")
+    total_revenue = 0.0
+    total_impressions = 0
     
-    for i, row in enumerate(data_rows):
-        # Extract fields (adjust field names based on API)
-        platform_raw = row.get('platform_type', row.get('platform', ''))
-        ad_type_raw = row.get('inventory_type', row.get('ad_type', ''))
-        revenue_raw = row.get('revenue', row.get('earnings', 0))
+    # API'den veri çek (async)
+    headers = {'Authorization': f'Bearer {self.api_key}'}
+    payload = {...}
+    response_data = await self._post_json(url, headers=headers, json=payload)
+    
+    # Verileri işle
+    rows = response_data.get('data', [])
+    
+    for row in rows:
+        # Platform ve ad type normalize et (base class veya enum kullan)
+        platform_raw = row.get('platform', '')
+        ad_type_raw = row.get('ad_type', '')
+        
+        platform = self._normalize_platform(platform_raw)  # Platform enum döner
+        ad_type = self._normalize_ad_type(ad_type_raw)    # AdType enum döner
+        
+        revenue = float(row.get('revenue', 0))
         impressions = int(row.get('impressions', 0))
         
-        # Map to standard values
-        platform = self.PLATFORM_MAP.get(platform_raw, platform_raw.lower() if platform_raw else 'unknown')
-        ad_type = self.AD_TYPE_MAP.get(ad_type_raw, ad_type_raw.lower() if ad_type_raw else 'unknown')
+        # Toplamı güncelle
+        total_revenue += revenue
+        total_impressions += impressions
         
-        # Scale revenue if needed (e.g., micros)
-        revenue = float(revenue_raw) / 1000000  # micros ise, değilse 1'e böl
-        
-        print(f"\n   Row {i+1}:")
-        print(f"      Platform: {platform_raw} → {platform}")
-        print(f"      Ad Type: {ad_type_raw} → {ad_type}")
-        print(f"      Revenue: {revenue_raw} → ${revenue:.4f}")
-        print(f"      Impressions: {impressions:,}")
-        
-        # Skip unknown platforms
-        if platform not in ['android', 'ios']:
-            print(f"      ⚠️ Skipping unknown platform: {platform}")
-            continue
-        
-        # Skip unknown ad types
-        if ad_type not in ['banner', 'interstitial', 'rewarded']:
-            print(f"      ⚠️ Skipping unknown ad type: {ad_type}")
-            continue
-        
-        # Aggregate to platform totals
-        result['platform_data'][platform]['revenue'] += revenue
+        # Base class helper ile accumulate
+        self._accumulate_metrics(
+            platform_data, ad_data,
+            platform, ad_type,
+            revenue, impressions
+        )
+    
+    # Result'u base class helper ile oluştur
+    result = self._build_result(
+        start_date, end_date,
+        revenue=total_revenue,
+        impressions=total_impressions,
+        ad_data=ad_data,
+        platform_data=platform_data
+    )
+    
+    # eCPM'leri hesapla
+    self._finalize_ecpm(result, ad_data, platform_data)
+    
+    return result
+```
         result['platform_data'][platform]['impressions'] += impressions
         
         # Aggregate to ad type
