@@ -331,14 +331,14 @@ class ValidationService:
         end_date = now_utc.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=1)
         start_date = end_date - timedelta(days=date_range_days - 1)
         
-        # Meta uses hourly aggregation with 1-day delay (instead of 3-day daily delay)
-        # Hourly data is available within 48 hours, so T-1 is safe
-        meta_delay_days = 1  # Changed from 3 to 1 for hourly mode
-        meta_end_date = end_date  # Same as other networks now
-        meta_start_date = start_date
+        # Meta requires 3-day delay for stable daily data (documented API behavior)
+        # T-3 means 3 days before today (when T-1 is yesterday for other networks)
+        meta_delay_days = 3
+        meta_end_date = now_utc.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=meta_delay_days)
+        meta_start_date = meta_end_date - timedelta(days=date_range_days - 1)
         
         print(f"📅 Date range (UTC): {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}")
-        print(f"📅 Meta date range (UTC, hourly aggregate mode): {meta_start_date.strftime('%Y-%m-%d')} to {meta_end_date.strftime('%Y-%m-%d')}")
+        print(f"📅 Meta date range (UTC, T-3 daily mode): {meta_start_date.strftime('%Y-%m-%d')} to {meta_end_date.strftime('%Y-%m-%d')}")
         print("=" * 80)
         
         if not self.applovin_fetcher:
@@ -355,9 +355,18 @@ class ValidationService:
             print(f"   ❌ Error: {str(e)}")
             return {'success': False, 'message': f'Failed to fetch MAX data: {str(e)}'}
         
-        # Step 1b: Meta now uses same date range as other networks (hourly aggregate mode)
-        # No separate MAX fetch needed - Meta uses max_rows directly
-        max_rows_meta = max_rows  # Same data since dates are aligned now
+        # Step 1b: Fetch separate MAX data for Meta using T-3 dates
+        # Meta requires 3-day delay, so we need MAX data from the same date for comparison
+        max_rows_meta = []
+        if 'meta' in self.network_fetchers:
+            try:
+                print(f"   📥 Fetching MAX data for Meta (T-3: {meta_end_date.strftime('%Y-%m-%d')})...")
+                max_data_meta = self.applovin_fetcher.fetch_data(meta_start_date, meta_end_date)
+                max_rows_meta = max_data_meta.get('comparison_rows', [])
+                print(f"   ✅ Retrieved {len(max_rows_meta)} rows from MAX for Meta comparison")
+            except Exception as e:
+                print(f"   ⚠️ Failed to fetch MAX data for Meta: {str(e)}")
+                max_rows_meta = []
         
         # Step 2: Fetch data from each enabled network
         print(f"\n📊 Step 2: Fetching data from individual networks...")
@@ -368,10 +377,9 @@ class ValidationService:
                 print(f"   📥 Fetching {network_name}...")
                 # Use appropriate date range for each network
                 if network_name == 'meta':
-                    # Use hourly aggregate for Meta (T-1 with hour range tracking)
-                    data = fetcher.fetch_hourly_aggregate(meta_end_date)
-                    hour_range = data.get('hour_range', 'N/A')
-                    print(f"      📊 Meta Hour Range: {hour_range}")
+                    # Use T-3 daily data for Meta (3-day reporting delay)
+                    data = fetcher.fetch_data(meta_start_date, meta_end_date)
+                    print(f"      📊 Meta using T-3 daily mode (date: {meta_end_date.strftime('%Y-%m-%d')})")
                 else:
                     data = fetcher.fetch_data(start_date, end_date)
                 network_data[network_name] = data
@@ -512,10 +520,11 @@ class ValidationService:
             # Get display name for network (convert Vungle -> Liftoff etc.)
             display_network = self.NETWORK_DISPLAY_NAME_MAP.get(row['network'], row['network'])
             
-            # Get hour_range for Meta (hourly aggregate mode)
-            hour_range = None
-            if network_key == 'meta' and network_key in network_data:
-                hour_range = network_data[network_key].get('hour_range')
+            # Get report date for this network (for date labeling in Slack)
+            report_date = None
+            if network_key and network_key in network_data:
+                date_range = network_data[network_key].get('date_range', {})
+                report_date = date_range.get('end') or date_range.get('start')
             
             comparison_rows.append({
                 'application': row['application'],
@@ -530,7 +539,7 @@ class ValidationService:
                 'max_ecpm': row['max_ecpm'],
                 'network_ecpm': net_ecpm,
                 'cpm_delta': cpm_delta,
-                'hour_range': hour_range,  # Only populated for Meta (hourly aggregate)
+                'report_date': report_date,  # Date label for Slack report
             })
         
         # Sort by application, then network
@@ -761,24 +770,27 @@ class ValidationService:
             icon = network_icons.get(network_name.upper(), '📡')
             
             # Get network date range from network_data
-            network_date_info = ""
+            network_date_label = ""
             if network_data:
                 # Map network display name to fetcher key
                 network_key_raw = network_name.upper().replace(' ', '_')
                 network_key = self.NETWORK_NAME_MAP.get(network_key_raw)
                 if network_key and network_key in network_data:
                     net_date_range = network_data[network_key].get('date_range', {})
-                    net_start = net_date_range.get('start', '')
                     net_end = net_date_range.get('end', '')
-                    if net_start and net_end:
-                        network_date_info = f"\n📅 Network Date: {net_start} to {net_end}"
+                    if net_end:
+                        # Add T-3 indicator for Meta to make delay clear
+                        if network_key == 'meta':
+                            network_date_label = f" (📅 {net_end}, T-3)"
+                        else:
+                            network_date_label = f" (📅 {net_end})"
             
-            # Network section header with threshold info
+            # Network section header with threshold info and date label
             blocks.append({
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": f"{icon} *{network_name}* ({len(rows)}/{len(all_network_rows)} satır threshold aştı){network_date_info}\n💰 MAX: ${network_max_rev:,.2f} → Network: ${network_net_rev:,.2f} ({rev_delta:+.1f}%)\n📈 Imps: {network_max_imps:,} → {network_net_imps:,} ({imp_delta:+.1f}%)"
+                    "text": f"{icon} *{network_name}*{network_date_label} ({len(rows)}/{len(all_network_rows)} satır threshold aştı)\n💰 MAX: ${network_max_rev:,.2f} → Network: ${network_net_rev:,.2f} ({rev_delta:+.1f}%)\n📈 Imps: {network_max_imps:,} → {network_net_imps:,} ({imp_delta:+.1f}%)"
                 }
             })
             

@@ -18,6 +18,7 @@ try:
     GOOGLE_API_AVAILABLE = True
 except ImportError:
     GOOGLE_API_AVAILABLE = False
+    Credentials = None  # Type hint placeholder
 
 
 class AdmobFetcher(NetworkDataFetcher):

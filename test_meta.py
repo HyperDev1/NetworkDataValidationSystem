@@ -1,5 +1,6 @@
 ﻿"""
 Test script for Meta Audience Network fetcher.
+Tests the T-3 daily data fetching approach for stable revenue data.
 """
 import requests
 from datetime import datetime, timedelta, timezone
@@ -24,9 +25,9 @@ def check_token_info(access_token: str):
 
 
 def test_meta_fetcher():
-    """Test Meta Audience Network fetcher."""
+    """Test Meta Audience Network fetcher with T-3 daily mode."""
     print("=" * 60)
-    print("META AUDIENCE NETWORK FETCHER TEST")
+    print("META AUDIENCE NETWORK FETCHER TEST (T-3 Daily Mode)")
     print("=" * 60)
     
     # Load config
@@ -66,27 +67,27 @@ def test_meta_fetcher():
         business_id=business_id
     )
     print(f"   ✅ Network name: {fetcher.get_network_name()}")
+    print(f"   ✅ Data delay: {fetcher.DATA_DELAY_DAYS} days (T-3)")
     
-    # Meta hourly aggregate mode - request data from yesterday (UTC)
-    # Hourly data is available within 48 hours, so T-1 is safe
+    # Meta T-3 daily mode - request data from 3 days ago
+    # Daily data requires ~3 days to stabilize per Meta API docs
     now_utc = datetime.now(timezone.utc)
-    target_date = now_utc.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=1)
+    target_date = now_utc.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=3)
     
-    print(f"\n📅 Requesting Meta hourly data for: {target_date.strftime('%Y-%m-%d')} (UTC)")
-    print(f"   (Yesterday - using hourly aggregate mode)")
+    print(f"\n📅 Requesting Meta daily data for: {target_date.strftime('%Y-%m-%d')}")
+    print(f"   (T-3: 3 days ago - using daily aggregation for stable data)")
     
-    # Fetch hourly aggregate data
-    print(f"\n📥 Fetching hourly aggregate data...")
+    # Fetch daily data
+    print(f"\n📥 Fetching daily data...")
     try:
-        data = fetcher.fetch_hourly_aggregate(target_date)
+        data = fetcher.fetch_data(target_date, target_date)
         
         print(f"\n✅ SUCCESS!")
         print(f"\n📊 Results:")
         print(f"   Total Revenue: ${data['revenue']:.2f}")
         print(f"   Total Impressions: {data['impressions']:,}")
         print(f"   Total eCPM: ${data['ecpm']:.2f}")
-        print(f"   Hour Range: {data.get('hour_range', 'N/A')}")
-        print(f"   Hours Received: {data.get('hours_received', 0)}/24")
+        print(f"   Date Range: {data.get('date_range', {})}")
         
         print(f"\n📱 Platform Breakdown:")
         for platform, pdata in data['platform_data'].items():
@@ -107,6 +108,32 @@ def test_meta_fetcher():
         traceback.print_exc()
 
 
+def test_date_calculation():
+    """Test that T-3 date calculation is correct."""
+    print("\n" + "=" * 60)
+    print("DATE CALCULATION TEST")
+    print("=" * 60)
+    
+    now_utc = datetime.now(timezone.utc)
+    today = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
+    
+    # Standard networks use T-1
+    t1_date = today - timedelta(days=1)
+    
+    # Meta uses T-3
+    t3_date = today - timedelta(days=3)
+    
+    print(f"\n📅 Today (UTC): {today.strftime('%Y-%m-%d')}")
+    print(f"📅 T-1 (other networks): {t1_date.strftime('%Y-%m-%d')}")
+    print(f"📅 T-3 (Meta): {t3_date.strftime('%Y-%m-%d')}")
+    
+    # Verify delay constant
+    from src.fetchers import MetaFetcher
+    assert MetaFetcher.DATA_DELAY_DAYS == 3, f"Expected DATA_DELAY_DAYS=3, got {MetaFetcher.DATA_DELAY_DAYS}"
+    print(f"\n✅ MetaFetcher.DATA_DELAY_DAYS = {MetaFetcher.DATA_DELAY_DAYS} (correct)")
+
+
 if __name__ == "__main__":
+    test_date_calculation()
     test_meta_fetcher()
 

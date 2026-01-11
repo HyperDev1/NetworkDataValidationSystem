@@ -115,6 +115,32 @@ python main.py --help
 - **Mintegral**: Requires `skey`, `secret`, and optional `app_ids`
 - **Unity Ads**: Requires `api_key`, `organization_id`, and optional `game_ids`
 - **Google AdMob**: Requires `service_account_json_path` and `publisher_id` (see AdMob Setup below)
+- **Meta Audience Network**: Requires `access_token` and `business_id` (see Meta Setup below)
+
+### Meta Audience Network Setup
+
+Meta Audience Network has a **3-day reporting delay** for stable daily data. This is documented behavior from Meta's API.
+
+1. **Get System User Access Token:**
+   - Go to [Meta Business Manager](https://business.facebook.com)
+   - Navigate to Business Settings → System Users
+   - Create or select a System User
+   - Generate an Access Token with `read_audience_network_insights` permission
+
+2. **Configure in config.yaml:**
+   ```yaml
+   networks:
+     meta:
+       enabled: true
+       access_token: "YOUR_SYSTEM_USER_TOKEN"
+       business_id: "YOUR_BUSINESS_ID"
+   ```
+
+3. **Understanding T-3 Delay:**
+   - Meta daily data requires ~3 days to stabilize
+   - When other networks report T-1 (yesterday), Meta reports T-3 (3 days ago)
+   - Slack reports show date labels to clarify: `Meta Bidding (📅 2026-01-08, T-3)`
+   - MAX comparison uses the same T-3 date for accurate comparison
 
 ### AdMob Setup
 
