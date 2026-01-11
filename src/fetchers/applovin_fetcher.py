@@ -21,30 +21,39 @@ class ApplovinFetcher(NetworkDataFetcher):
     
     # Network name mapping (Applovin network names to our standard names)
     NETWORK_NAME_MAP = {
-        'APPLOVIN': 'AppLovin',
-        'ADMOB': 'AdMob',
-        'FACEBOOK': 'Meta',
-        'META_AUDIENCE_NETWORK': 'Meta',
-        'MINTEGRAL': 'Mintegral',
-        'UNITY': 'Unity Ads',
-        'UNITY_ADS': 'Unity Ads',
-        'IRONSOURCE': 'IronSource',
-        'VUNGLE': 'Vungle',
-        'LIFTOFF': 'Liftoff',
-        'CHARTBOOST': 'Chartboost',
-        'INMOBI': 'InMobi',
-        'PANGLE': 'Pangle',
-        'BYTEDANCE': 'Pangle',
+        'APPLOVIN': 'Applovin Bidding',
+        'APPLOVIN_EXCHANGE': 'Applovin Exchange',
+        'APPLOVIN_NETWORK': 'Applovin Bidding',
+        'ADMOB': 'Google Bidding',
+        'FACEBOOK': 'Meta Bidding',
+        'META_AUDIENCE_NETWORK': 'Meta Bidding',
+        'FACEBOOK_NETWORK': 'Meta Bidding',
+        'MINTEGRAL': 'Mintegral Bidding',
+        'UNITY': 'Unity Bidding',
+        'UNITY_ADS': 'Unity Bidding',
+        'IRONSOURCE': 'Ironsource Bidding',
+        'VUNGLE': 'Liftoff Bidding',
+        'LIFTOFF': 'Liftoff Bidding',
+        'LIFTOFF_MONETIZE': 'Liftoff Bidding',
+        'CHARTBOOST': 'Chartboost Bidding',
+        'INMOBI': 'Inmobi Bidding',
+        'PANGLE': 'Pangle Bidding',
+        'BYTEDANCE': 'Pangle Bidding',
+        'TIKTOK': 'Pangle Bidding',
         'MOBILEFUSE': 'MobileFuse',
         'VERVE': 'Verve',
         'YANDEX': 'Yandex',
         'GOOGLE_AD_MANAGER': 'Google Ad Manager',
+        'GOOGLE_AD_MANAGER_NETWORK': 'Google Ad Manager',
+        'GOOGLE': 'Google Bidding',
         'HYPRMX': 'HyprMX',
-        'MOLOCO': 'Moloco',
+        'MOLOCO': 'Moloco Bidding',
         'OGURY': 'Ogury',
         'SMAATO': 'Smaato',
         'SNAP': 'Snap',
-        'TIKTOK': 'TikTok',
+        'FYBER': 'DT Exchange Bidding',
+        'DT_EXCHANGE': 'DT Exchange Bidding',
+        'BIDMACHINE': 'Bidmachine Bidding',
     }
     
     # Application name mapping (package name to display name)
@@ -126,17 +135,16 @@ class ApplovinFetcher(NetworkDataFetcher):
         if not network:
             return 'Unknown'
         
-        # Remove common suffixes
-        network_clean = network.replace('_Bidding', '').replace(' Bidding', '')
-        network_clean = network_clean.replace('_Network', '').replace(' Network', '')
-        network_clean = network_clean.replace('_Exchange', '').replace(' Exchange', '')
+        # Remove common suffixes (case-insensitive)
+        network_upper = network.upper()
+        network_clean = network_upper.replace('_BIDDING', '').replace(' BIDDING', '')
+        network_clean = network_clean.replace('_NETWORK', '').replace(' NETWORK', '')
+        network_clean = network_clean.replace('_EXCHANGE', '').replace(' EXCHANGE', '')
         network_clean = network_clean.strip()
         
-        network_upper = network_clean.upper()
-        
         # Direct mapping
-        if network_upper in self.NETWORK_NAME_MAP:
-            return self.NETWORK_NAME_MAP[network_upper]
+        if network_clean in self.NETWORK_NAME_MAP:
+            return self.NETWORK_NAME_MAP[network_clean]
         
         # Return cleaned title case
         return network_clean.replace('_', ' ').title()

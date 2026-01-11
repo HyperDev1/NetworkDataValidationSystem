@@ -67,25 +67,26 @@ def test_meta_fetcher():
     )
     print(f"   ✅ Network name: {fetcher.get_network_name()}")
     
-    # Meta has 3-day reporting delay - request data from 3 days ago (UTC)
+    # Meta hourly aggregate mode - request data from yesterday (UTC)
+    # Hourly data is available within 48 hours, so T-1 is safe
     now_utc = datetime.now(timezone.utc)
-    meta_delay_days = 3
-    end_date = now_utc.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=1) - timedelta(days=meta_delay_days)
-    start_date = end_date
+    target_date = now_utc.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=1)
     
-    print(f"\n📅 Requesting Meta data for: {start_date.strftime('%Y-%m-%d')} (UTC)")
-    print(f"   (This is {meta_delay_days + 1} days ago - Meta's latest available data)")
+    print(f"\n📅 Requesting Meta hourly data for: {target_date.strftime('%Y-%m-%d')} (UTC)")
+    print(f"   (Yesterday - using hourly aggregate mode)")
     
-    # Fetch data
-    print(f"\n📥 Fetching data...")
+    # Fetch hourly aggregate data
+    print(f"\n📥 Fetching hourly aggregate data...")
     try:
-        data = fetcher.fetch_data(start_date, end_date)
+        data = fetcher.fetch_hourly_aggregate(target_date)
         
         print(f"\n✅ SUCCESS!")
         print(f"\n📊 Results:")
         print(f"   Total Revenue: ${data['revenue']:.2f}")
         print(f"   Total Impressions: {data['impressions']:,}")
         print(f"   Total eCPM: ${data['ecpm']:.2f}")
+        print(f"   Hour Range: {data.get('hour_range', 'N/A')}")
+        print(f"   Hours Received: {data.get('hours_received', 0)}/24")
         
         print(f"\n📱 Platform Breakdown:")
         for platform, pdata in data['platform_data'].items():

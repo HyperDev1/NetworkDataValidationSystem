@@ -265,4 +265,4 @@ class LiftoffFetcher(NetworkDataFetcher):
     
     def get_network_name(self) -> str:
         """Return the name of the network."""
-        return "Liftoff"
+        return "Liftoff Monetize Bidding"

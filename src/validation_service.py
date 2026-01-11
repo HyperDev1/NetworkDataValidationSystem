@@ -3,10 +3,11 @@ Main validation service orchestrating data fetching and Slack notifications.
 Compares AppLovin MAX data with individual network data.
 """
 from datetime import datetime, timedelta
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from src.config import Config
 from src.fetchers import ApplovinFetcher, MintegralFetcher, UnityAdsFetcher, AdmobFetcher, MetaFetcher, MolocoFetcher, IronSourceFetcher, InMobiFetcher, BidMachineFetcher, LiftoffFetcher, DTExchangeFetcher, PangleFetcher
 from src.notifiers import SlackNotifier
+from src.exporters import GCSExporter
 
 
 class ValidationService:
@@ -88,20 +89,35 @@ class ValidationService:
     
     # Display name mapping - convert AppLovin network names to display names for Slack
     NETWORK_DISPLAY_NAME_MAP = {
+        # Vungle -> Liftoff
         'Vungle Bidding': 'Liftoff Bidding',
-        'Vungle': 'Liftoff',
+        'Vungle': 'Liftoff Bidding',
         'VUNGLE_BIDDING': 'Liftoff Bidding',
-        'VUNGLE': 'Liftoff',
+        'VUNGLE': 'Liftoff Bidding',
+        'Liftoff Monetize Bidding': 'Liftoff Bidding',
+        # Fyber -> DT Exchange
         'Fyber Bidding': 'DT Exchange Bidding',
-        'Fyber': 'DT Exchange',
+        'Fyber': 'DT Exchange Bidding',
         'FYBER_BIDDING': 'DT Exchange Bidding',
-        'FYBER': 'DT Exchange',
+        'FYBER': 'DT Exchange Bidding',
+        # Tiktok -> Pangle
         'Tiktok Bidding': 'Pangle Bidding',
-        'Tiktok': 'Pangle',
+        'Tiktok': 'Pangle Bidding',
         'TIKTOK_BIDDING': 'Pangle Bidding',
-        'TIKTOK': 'Pangle',
+        'TIKTOK': 'Pangle Bidding',
         'TikTok Bidding': 'Pangle Bidding',
-        'TikTok': 'Pangle',
+        'TikTok': 'Pangle Bidding',
+        # Facebook -> Meta
+        'Facebook Network': 'Meta Bidding',
+        'Facebook Bidding': 'Meta Bidding',
+        'FACEBOOK': 'Meta Bidding',
+        'FACEBOOK_BIDDING': 'Meta Bidding',
+        # ironSource -> IronSource
+        'ironSource Bidding': 'Ironsource Bidding',
+        'ironSource': 'Ironsource Bidding',
+        # HyprMX
+        'Hyprmx Network': 'HyprMX',
+        'HYPRMX_NETWORK': 'HyprMX',
     }
     
     def __init__(self, config: Config):
@@ -110,6 +126,7 @@ class ValidationService:
         self.applovin_fetcher = None
         self.network_fetchers = {}
         self.notifier = None
+        self.gcs_exporter: Optional[GCSExporter] = None
         
         self._initialize_components()
     
@@ -133,6 +150,20 @@ class ValidationService:
                 webhook_url=slack_config['webhook_url'],
                 channel=slack_config.get('channel')
             )
+        
+        # Initialize GCS exporter for BigQuery/Looker analytics
+        gcp_config = self.config.get_gcp_config()
+        if gcp_config and gcp_config.get('enabled'):
+            try:
+                self.gcs_exporter = GCSExporter(
+                    project_id=gcp_config['project_id'],
+                    bucket_name=gcp_config['bucket_name'],
+                    service_account_path=gcp_config.get('service_account_path'),
+                    base_path=gcp_config.get('base_path', 'network_data')
+                )
+                print(f"   ✅ GCS exporter initialized (bucket: {gcp_config['bucket_name']})")
+            except Exception as e:
+                print(f"   ⚠️ GCS exporter initialization failed: {e}")
     
     def _initialize_network_fetchers(self):
         """Initialize individual network fetchers."""
@@ -300,13 +331,14 @@ class ValidationService:
         end_date = now_utc.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=1)
         start_date = end_date - timedelta(days=date_range_days - 1)
         
-        # Meta has 3-day reporting delay - calculate shifted dates
-        meta_delay_days = 3
-        meta_end_date = end_date - timedelta(days=meta_delay_days)
-        meta_start_date = start_date - timedelta(days=meta_delay_days)
+        # Meta uses hourly aggregation with 1-day delay (instead of 3-day daily delay)
+        # Hourly data is available within 48 hours, so T-1 is safe
+        meta_delay_days = 1  # Changed from 3 to 1 for hourly mode
+        meta_end_date = end_date  # Same as other networks now
+        meta_start_date = start_date
         
         print(f"📅 Date range (UTC): {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}")
-        print(f"📅 Meta date range (UTC, {meta_delay_days}-day delay): {meta_start_date.strftime('%Y-%m-%d')} to {meta_end_date.strftime('%Y-%m-%d')}")
+        print(f"📅 Meta date range (UTC, hourly aggregate mode): {meta_start_date.strftime('%Y-%m-%d')} to {meta_end_date.strftime('%Y-%m-%d')}")
         print("=" * 80)
         
         if not self.applovin_fetcher:
@@ -323,16 +355,9 @@ class ValidationService:
             print(f"   ❌ Error: {str(e)}")
             return {'success': False, 'message': f'Failed to fetch MAX data: {str(e)}'}
         
-        # Step 1b: Fetch MAX data for Meta with shifted date range
-        max_rows_meta = []
-        if 'meta' in self.network_fetchers:
-            print(f"   📥 Fetching MAX data for Meta comparison ({meta_start_date.strftime('%Y-%m-%d')} to {meta_end_date.strftime('%Y-%m-%d')})...")
-            try:
-                max_data_meta = self.applovin_fetcher.fetch_data(meta_start_date, meta_end_date)
-                max_rows_meta = max_data_meta.get('comparison_rows', [])
-                print(f"   ✅ Retrieved {len(max_rows_meta)} rows from MAX for Meta comparison")
-            except Exception as e:
-                print(f"   ⚠️ Could not fetch META comparison data: {str(e)}")
+        # Step 1b: Meta now uses same date range as other networks (hourly aggregate mode)
+        # No separate MAX fetch needed - Meta uses max_rows directly
+        max_rows_meta = max_rows  # Same data since dates are aligned now
         
         # Step 2: Fetch data from each enabled network
         print(f"\n📊 Step 2: Fetching data from individual networks...")
@@ -343,7 +368,10 @@ class ValidationService:
                 print(f"   📥 Fetching {network_name}...")
                 # Use appropriate date range for each network
                 if network_name == 'meta':
-                    data = fetcher.fetch_data(meta_start_date, meta_end_date)
+                    # Use hourly aggregate for Meta (T-1 with hour range tracking)
+                    data = fetcher.fetch_hourly_aggregate(meta_end_date)
+                    hour_range = data.get('hour_range', 'N/A')
+                    print(f"      📊 Meta Hour Range: {hour_range}")
                 else:
                     data = fetcher.fetch_data(start_date, end_date)
                 network_data[network_name] = data
@@ -390,6 +418,21 @@ class ValidationService:
                 else:
                     print("   ❌ Failed to send report")
             
+            # Export to GCS for BigQuery/Looker analytics
+            if self.gcs_exporter:
+                print("\n📤 Exporting data to GCS...")
+                try:
+                    # Export comparison data (MAX vs Network) - this has the actual network data
+                    gcs_files = self.gcs_exporter.export_to_gcs(comparison_rows, end_date)
+                    if gcs_files:
+                        print(f"   ✅ Exported {len(comparison_rows)} comparison rows to GCS")
+                        for f in gcs_files:
+                            print(f"      📁 {f}")
+                    else:
+                        print("   ⚠️ No data exported to GCS")
+                except Exception as e:
+                    print(f"   ❌ GCS export failed: {e}")
+            
             return {
                 'success': True,
                 'comparison_rows': comparison_rows,
@@ -415,34 +458,51 @@ class ValidationService:
         exclude_networks = exclude_networks or []
         
         for row in max_rows:
-            network_name_raw = row.get('network', '').upper().replace(' ', '_')
+            network_name = row.get('network', '')
+            network_name_raw = network_name.upper().replace(' ', '_')
             network_key = self.NETWORK_NAME_MAP.get(network_name_raw)
             
-            # Only include networks that have fetchers configured
-            if not network_key or network_key not in network_data:
-                continue
-            
-            # Apply include/exclude filters
-            if include_networks and network_key not in include_networks:
-                continue
-            if network_key in exclude_networks:
-                continue
-            
-            net_data = network_data[network_key]
             platform = 'ios' if 'iOS' in row.get('application', '') else 'android'
             ad_type = row.get('ad_type', '').lower()
             
-            # Get platform-specific data
-            platform_data = net_data.get('platform_data', {}).get(platform, {})
-            ad_data = platform_data.get('ad_data', {}).get(ad_type, {})
+            # Special handling for AppLovin's own networks (Applovin Bidding, Applovin Exchange)
+            # For these networks, MAX data IS the network's own data - no separate API needed
+            is_applovin_network = 'applovin' in network_name.lower()
             
-            # Skip if no network data for this ad type
-            if ad_data.get('impressions', 0) == 0:
-                continue
-            
-            net_revenue = ad_data.get('revenue', 0)
-            net_impressions = ad_data.get('impressions', 0)
-            net_ecpm = ad_data.get('ecpm', 0)
+            if is_applovin_network:
+                # Skip Applovin networks if we're doing include_networks filter (e.g., Meta-only pass)
+                # This prevents Applovin from being added twice
+                if include_networks:
+                    continue
+                    
+                # Use MAX values as network values since AppLovin reports its own data directly
+                net_revenue = row.get('max_revenue', 0)
+                net_impressions = row.get('max_impressions', 0)
+                net_ecpm = row.get('max_ecpm', 0)
+            else:
+                # Only include networks that have fetchers configured
+                if not network_key or network_key not in network_data:
+                    continue
+                
+                # Apply include/exclude filters
+                if include_networks and network_key not in include_networks:
+                    continue
+                if network_key in exclude_networks:
+                    continue
+                
+                net_data = network_data[network_key]
+                
+                # Get platform-specific data
+                platform_data = net_data.get('platform_data', {}).get(platform, {})
+                ad_data = platform_data.get('ad_data', {}).get(ad_type, {})
+                
+                # Skip if no network data for this ad type
+                if ad_data.get('impressions', 0) == 0:
+                    continue
+                
+                net_revenue = ad_data.get('revenue', 0)
+                net_impressions = ad_data.get('impressions', 0)
+                net_ecpm = ad_data.get('ecpm', 0)
             
             # Calculate deltas
             imp_delta = self._calculate_delta(row['max_impressions'], net_impressions)
@@ -451,6 +511,11 @@ class ValidationService:
             
             # Get display name for network (convert Vungle -> Liftoff etc.)
             display_network = self.NETWORK_DISPLAY_NAME_MAP.get(row['network'], row['network'])
+            
+            # Get hour_range for Meta (hourly aggregate mode)
+            hour_range = None
+            if network_key == 'meta' and network_key in network_data:
+                hour_range = network_data[network_key].get('hour_range')
             
             comparison_rows.append({
                 'application': row['application'],
@@ -465,6 +530,7 @@ class ValidationService:
                 'max_ecpm': row['max_ecpm'],
                 'network_ecpm': net_ecpm,
                 'cpm_delta': cpm_delta,
+                'hour_range': hour_range,  # Only populated for Meta (hourly aggregate)
             })
         
         # Sort by application, then network
@@ -519,37 +585,64 @@ class ValidationService:
         
         return "\n".join(lines)
     
+    def _parse_delta_percentage(self, delta_str: str) -> float:
+        """
+        Parse delta percentage string to float.
+        
+        Args:
+            delta_str: Delta string like "+5.2%", "-3.1%", "+∞%", "0.0%"
+            
+        Returns:
+            Float value of delta (e.g., 5.2, -3.1, inf)
+        """
+        if not delta_str:
+            return 0.0
+        
+        # Remove % sign and whitespace
+        delta_str = delta_str.strip().rstrip('%')
+        
+        # Handle infinity case
+        if '∞' in delta_str or 'inf' in delta_str.lower():
+            return float('inf') if '+' in delta_str or delta_str.startswith('∞') else float('-inf')
+        
+        try:
+            return float(delta_str)
+        except ValueError:
+            return 0.0
+    
     def _send_slack_report(self, comparison_rows: List[Dict], totals: Dict, start_date: datetime, end_date: datetime, network_data: Dict[str, Any] = None) -> bool:
-        """Send Network Comparison report to Slack with separate blocks per network."""
+        """Send Network Comparison report to Slack with separate blocks per network.
+        
+        Only shows app/ad_type rows where |rev_delta| > threshold (default 5%).
+        If all rows are below threshold, sends a summary "all normal" message.
+        """
         from datetime import timezone
         
-        blocks = []
+        # Get revenue delta threshold and minimum revenue from config
+        threshold = self.config.get_slack_revenue_delta_threshold()
+        min_revenue = self.config.get_slack_min_revenue_for_alerts()
         
-        # Header
-        blocks.append({
-            "type": "header",
-            "text": {"type": "plain_text", "text": "📊 Network Comparison Report", "emoji": True}
-        })
-        
-        # Generated date
-        now_utc = datetime.now(timezone.utc)
-        blocks.append({
-            "type": "context",
-            "elements": [{
-                "type": "mrkdwn",
-                "text": f"📅 *Generated:* {now_utc.strftime('%Y-%m-%d %H:%M:%S')} UTC"
-            }]
-        })
-        
-        blocks.append({"type": "divider"})
-        
-        # Group rows by network
-        networks = {}
+        # Filter rows by revenue delta threshold AND minimum revenue (app/ad_type level)
+        total_rows = len(comparison_rows)
+        filtered_rows = []
+        low_revenue_rows = 0
         for row in comparison_rows:
-            network_name = row['network']
-            if network_name not in networks:
-                networks[network_name] = []
-            networks[network_name].append(row)
+            max_rev = row.get('max_revenue', 0)
+            
+            # Skip rows with revenue below minimum threshold
+            if max_rev < min_revenue:
+                low_revenue_rows += 1
+                continue
+            
+            rev_delta_value = self._parse_delta_percentage(row.get('rev_delta', '0%'))
+            if abs(rev_delta_value) > threshold:
+                filtered_rows.append(row)
+        
+        filtered_count = len(filtered_rows)
+        checked_rows = total_rows - low_revenue_rows
+        
+        blocks = []
+        now_utc = datetime.now(timezone.utc)
         
         # Network icons mapping
         network_icons = {
@@ -571,13 +664,95 @@ class ValidationService:
             'TIKTOK_BIDDING': '🎯',
         }
         
-        # Create separate block for each network
+        # If no rows exceed threshold, send "all normal" message
+        if not filtered_rows:
+            blocks.append({
+                "type": "header",
+                "text": {"type": "plain_text", "text": "✅ Network Comparison Report - All Normal", "emoji": True}
+            })
+            
+            blocks.append({
+                "type": "context",
+                "elements": [{
+                    "type": "mrkdwn",
+                    "text": f"📅 *Generated:* {now_utc.strftime('%Y-%m-%d %H:%M:%S')} UTC"
+                }]
+            })
+            
+            blocks.append({"type": "divider"})
+            
+            # Calculate overall totals
+            overall_max_rev = totals.get('max_revenue', 0)
+            overall_net_rev = totals.get('network_revenue', 0)
+            overall_rev_delta = ((overall_net_rev - overall_max_rev) / overall_max_rev * 100) if overall_max_rev > 0 else 0
+            
+            # Build status message
+            status_msg = f"✅ *Tüm network'ler normal*\n\n"
+            status_msg += f"Revenue delta threshold: *±{threshold}%*\n"
+            if low_revenue_rows > 0:
+                status_msg += f"Toplam {checked_rows} satır kontrol edildi ({low_revenue_rows} satır <${min_revenue:.0f} revenue), hiçbiri threshold'u aşmadı.\n\n"
+            else:
+                status_msg += f"Toplam {total_rows} satır kontrol edildi, hiçbiri threshold'u aşmadı.\n\n"
+            status_msg += f"💰 *Toplam:* MAX ${overall_max_rev:,.2f} → Network ${overall_net_rev:,.2f} ({overall_rev_delta:+.1f}%)"
+            
+            blocks.append({
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": status_msg
+                }
+            })
+            
+            payload = {"blocks": blocks}
+            if self.notifier.channel:
+                payload["channel"] = self.notifier.channel
+            
+            return self.notifier._send_to_slack(payload)
+        
+        # Group filtered rows by network
+        networks = {}
+        for row in filtered_rows:
+            network_name = row['network']
+            if network_name not in networks:
+                networks[network_name] = []
+            networks[network_name].append(row)
+        
+        # Count affected networks
+        affected_networks = len(networks)
+        total_networks = len(set(r['network'] for r in comparison_rows))
+        
+        # Header with alert
+        blocks.append({
+            "type": "header",
+            "text": {"type": "plain_text", "text": "⚠️ Network Comparison Report - Threshold Aşıldı", "emoji": True}
+        })
+        
+        # Context with summary
+        context_msg = f"📅 *Generated:* {now_utc.strftime('%Y-%m-%d %H:%M:%S')} UTC | "
+        if low_revenue_rows > 0:
+            context_msg += f"⚠️ *{filtered_count}/{checked_rows}* satır threshold (±{threshold}%) aştı ({low_revenue_rows} satır <${min_revenue:.0f} revenue) | "
+        else:
+            context_msg += f"⚠️ *{filtered_count}/{total_rows}* satır threshold (±{threshold}%) aştı | "
+        context_msg += f"📡 *{affected_networks}/{total_networks}* network etkilendi"
+        
+        blocks.append({
+            "type": "context",
+            "elements": [{
+                "type": "mrkdwn",
+                "text": context_msg
+            }]
+        })
+        
+        blocks.append({"type": "divider"})
+        
+        # Create separate block for each network (only affected networks)
         for network_name, rows in networks.items():
-            # Calculate network totals
-            network_max_rev = sum(r['max_revenue'] for r in rows)
-            network_net_rev = sum(r['network_revenue'] for r in rows)
-            network_max_imps = sum(r['max_impressions'] for r in rows)
-            network_net_imps = sum(r['network_impressions'] for r in rows)
+            # Calculate network totals (from ALL rows, not just filtered)
+            all_network_rows = [r for r in comparison_rows if r['network'] == network_name]
+            network_max_rev = sum(r['max_revenue'] for r in all_network_rows)
+            network_net_rev = sum(r['network_revenue'] for r in all_network_rows)
+            network_max_imps = sum(r['max_impressions'] for r in all_network_rows)
+            network_net_imps = sum(r['network_impressions'] for r in all_network_rows)
             
             rev_delta = ((network_net_rev - network_max_rev) / network_max_rev * 100) if network_max_rev > 0 else 0
             imp_delta = ((network_net_imps - network_max_imps) / network_max_imps * 100) if network_max_imps > 0 else 0
@@ -598,16 +773,16 @@ class ValidationService:
                     if net_start and net_end:
                         network_date_info = f"\n📅 Network Date: {net_start} to {net_end}"
             
-            # Network section header
+            # Network section header with threshold info
             blocks.append({
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": f"{icon} *{network_name}*{network_date_info}\n💰 MAX: ${network_max_rev:,.2f} → Network: ${network_net_rev:,.2f} ({rev_delta:+.1f}%)\n📈 Imps: {network_max_imps:,} → {network_net_imps:,} ({imp_delta:+.1f}%)"
+                    "text": f"{icon} *{network_name}* ({len(rows)}/{len(all_network_rows)} satır threshold aştı){network_date_info}\n💰 MAX: ${network_max_rev:,.2f} → Network: ${network_net_rev:,.2f} ({rev_delta:+.1f}%)\n📈 Imps: {network_max_imps:,} → {network_net_imps:,} ({imp_delta:+.1f}%)"
                 }
             })
             
-            # Build table for this network
+            # Build table for this network (only filtered rows)
             table_lines = []
             table_lines.append(f"{'Application':<28} │ {'Ad Type':<12} │ {'MAX Imps':>10} │ {'Net Imps':>10} │ {'Imp Δ':>8} │ {'MAX Rev':>10} │ {'Net Rev':>10} │ {'Rev Δ':>8} │ {'MAX CPM':>8} │ {'Net CPM':>8} │ {'CPM Δ':>8}")
             table_lines.append("─" * 155)

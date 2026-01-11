@@ -16,9 +16,14 @@ class MetaFetcher(NetworkDataFetcher):
     # Graph API version
     API_VERSION = "v24.0"
     
-    # Meta Audience Network has a reporting delay of ~3 days
-    # Data is only available starting from 3 days ago
-    DATA_DELAY_DAYS = 3
+    # Meta Audience Network reporting delays:
+    # - Daily granularity: ~3 days delay
+    # - Hourly granularity: Available within 48 hours (use 1-day delay)
+    DATA_DELAY_DAYS_DAILY = 3
+    DATA_DELAY_DAYS_HOURLY = 1
+    
+    # For backward compatibility
+    DATA_DELAY_DAYS = 1  # Default to hourly mode now
     
     # Ad format mapping - Meta placement to our standard categories
     AD_FORMAT_MAP = {
@@ -377,5 +382,229 @@ class MetaFetcher(NetworkDataFetcher):
     
     def get_network_name(self) -> str:
         """Return the network name."""
-        return "Meta"
+        return "Meta Bidding"
+    
+    def fetch_hourly_aggregate(self, target_date: datetime) -> Dict[str, Any]:
+        """
+        Fetch hourly data for a single day and aggregate to daily format.
+        
+        Meta API supports hourly granularity with max 48-hour lookback.
+        This fetches all available hours for target_date (UTC 00:00-23:59)
+        and aggregates them into daily totals.
+        
+        Args:
+            target_date: The UTC date to fetch hourly data for
+            
+        Returns:
+            Dictionary with aggregated daily data plus hour_range info:
+            {
+                'revenue': float,
+                'impressions': int,
+                'ecpm': float,
+                'ad_data': {...},
+                'platform_data': {...},
+                'network': str,
+                'date_range': {'start': str, 'end': str},
+                'hour_range': '00:00-23:00 UTC (24/24)',  # NEW
+                'hours_received': 24  # NEW
+            }
+        """
+        print(f"      [INFO] Fetching Meta hourly data for {target_date.strftime('%Y-%m-%d')} (UTC)...")
+        
+        # Set time range for the full UTC day
+        start_datetime = target_date.replace(hour=0, minute=0, second=0, microsecond=0)
+        end_datetime = target_date.replace(hour=23, minute=59, second=59, microsecond=0)
+        
+        print(f"      [INFO] Hourly range: {start_datetime.strftime('%Y-%m-%dT%H:%M:%S')} to {end_datetime.strftime('%Y-%m-%dT%H:%M:%S')} UTC")
+        
+        # GET /{business_id}/adnetworkanalytics with hourly aggregation
+        query_url = f"{self.base_url}/{self.business_id}/adnetworkanalytics"
+        
+        # Query parameters with hourly aggregation
+        # Note: 'time' is NOT a valid breakdown for Meta API
+        # Hourly data comes in response with 'time' field in each row
+        query_params = {
+            "access_token": self.access_token,
+            "since": start_datetime.strftime("%Y-%m-%dT%H:%M:%SZ+0000"),
+            "until": end_datetime.strftime("%Y-%m-%dT%H:%M:%SZ+0000"),
+            "metrics": '[\"fb_ad_network_revenue\",\"fb_ad_network_imp\",\"fb_ad_network_cpm\"]',
+            "breakdowns": '[\"platform\",\"display_format\"]',  # No 'time' - it comes in response
+            "aggregation_period": "hour",  # Request hourly granularity
+        }
+        
+        print(f"      [DEBUG] Meta Hourly Query URL: {query_url}")
+        print(f"      [DEBUG] Meta hourly params:")
+        print(f"         since: {query_params['since']}")
+        print(f"         until: {query_params['until']}")
+        print(f"         aggregation_period: {query_params['aggregation_period']}")
+        print(f"         breakdowns: {query_params['breakdowns']}")
+        
+        try:
+            response = requests.get(query_url, params=query_params, timeout=60)
+            
+            print(f"      [DEBUG] Full URL: {response.url}")
+            print(f"      [DEBUG] Meta hourly response status: {response.status_code}")
+            print(f"      [DEBUG] Meta hourly response: {response.text[:500]}")
+            
+            if response.status_code != 200:
+                error_data = response.json() if response.text else {}
+                error_msg = error_data.get('error', {}).get('message', response.text[:500])
+                print(f"      [ERROR] Meta API error: {error_msg}")
+                raise Exception(f"Meta API error: {error_msg}")
+            
+            query_response = response.json()
+            
+            # Check for async query
+            query_id = query_response.get('query_id')
+            if query_id:
+                print(f"      [DEBUG] Async hourly query created, ID: {query_id}")
+                data = self._poll_async_results(query_id)
+            else:
+                data = query_response.get('data', [])
+            
+        except requests.exceptions.RequestException as e:
+            raise Exception(f"Failed to fetch hourly data from Meta: {str(e)}")
+        
+        # Process hourly data and aggregate
+        return self._aggregate_hourly_to_daily(data, target_date)
+    
+    def _aggregate_hourly_to_daily(
+        self, 
+        hourly_data: list, 
+        target_date: datetime
+    ) -> Dict[str, Any]:
+        """
+        Aggregate hourly data into daily format with hour range tracking.
+        
+        Args:
+            hourly_data: Raw hourly data from Meta API
+            target_date: The target date for this aggregation
+            
+        Returns:
+            Aggregated daily data with hour_range metadata
+        """
+        # Initialize data structures
+        ad_data = self._init_ad_data()
+        platform_data = self._init_platform_data()
+        
+        # Track which hours we received data for
+        hours_seen = set()
+        
+        if not hourly_data:
+            print(f"      [DEBUG] Meta returned no hourly data.")
+        else:
+            print(f"      [DEBUG] Meta got {len(hourly_data)} hourly data entries")
+        
+        # Process results
+        results = hourly_data if isinstance(hourly_data, list) else [hourly_data] if hourly_data else []
+        
+        for entry in results:
+            try:
+                if 'results' in entry:
+                    for row in entry.get('results', []):
+                        # Extract hour from time breakdown
+                        hour = self._extract_hour_from_row(row)
+                        if hour is not None:
+                            hours_seen.add(hour)
+                        
+                        # Process metric (reuse existing method)
+                        self._process_metric_row(row, ad_data, platform_data)
+            except (TypeError, ValueError, KeyError) as e:
+                print(f"      [DEBUG] Hourly entry parse error: {str(e)}, entry: {str(entry)[:200]}")
+                continue
+        
+        # Calculate totals from ad_data
+        total_revenue = 0.0
+        total_impressions = 0
+        for ad_type in ad_data:
+            total_revenue += ad_data[ad_type]['revenue']
+            total_impressions += ad_data[ad_type]['impressions']
+        
+        # Calculate hour range
+        hours_received = len(hours_seen)
+        if hours_seen:
+            min_hour = min(hours_seen)
+            max_hour = max(hours_seen)
+            hour_range = f"{min_hour:02d}:00-{max_hour:02d}:00 UTC ({hours_received}/24)"
+        else:
+            hour_range = "No data (0/24)"
+        
+        print(f"      [INFO] Hour range received: {hour_range}")
+        if hours_received < 24:
+            missing_hours = set(range(24)) - hours_seen
+            print(f"      [DEBUG] Missing hours: {sorted(missing_hours)}")
+        
+        # Build result
+        result = {
+            'revenue': round(total_revenue, 2),
+            'impressions': total_impressions,
+            'ecpm': self._calculate_ecpm(total_revenue, total_impressions),
+            'ad_data': ad_data,
+            'platform_data': platform_data,
+            'network': self.get_network_name(),
+            'date_range': {
+                'start': target_date.strftime("%Y-%m-%d"),
+                'end': target_date.strftime("%Y-%m-%d")
+            },
+            'hour_range': hour_range,
+            'hours_received': hours_received
+        }
+        
+        # Calculate all eCPM values
+        self._finalize_ecpm(result)
+        
+        print(f"      [INFO] Meta Hourly Aggregate Total: ${result['revenue']:.2f} revenue, {result['impressions']:,} impressions")
+        print(f"      [INFO] Meta Hour Range: {hour_range}")
+        
+        return result
+    
+    def _extract_hour_from_row(self, row: dict) -> Optional[int]:
+        """
+        Extract hour from a data row's time field.
+        
+        Meta API returns time in the row itself when aggregation_period=hour,
+        not in breakdowns. The time field contains ISO format timestamp.
+        
+        Args:
+            row: Single row from API results
+            
+        Returns:
+            Hour (0-23) or None if not found
+        """
+        try:
+            # First check for direct 'time' field in row (hourly aggregation)
+            time_value = row.get('time')
+            if time_value:
+                # Parse ISO format: 2026-01-06T14:00:00+0000
+                if 'T' in str(time_value):
+                    time_str = str(time_value).replace('+0000', '+00:00').replace('Z', '+00:00')
+                    # Handle format like "2026-01-06T14:00:00+0000"
+                    if time_str.endswith('+00:00'):
+                        dt = datetime.fromisoformat(time_str)
+                    else:
+                        dt = datetime.fromisoformat(time_str.split('+')[0])
+                    return dt.hour
+                elif ':' in str(time_value):
+                    # Time format: 14:00:00 or 14:00
+                    return int(str(time_value).split(':')[0])
+                else:
+                    return int(time_value)
+            
+            # Fallback: Check breakdowns for time (shouldn't happen with hourly API)
+            breakdowns = row.get('breakdowns', [])
+            if isinstance(breakdowns, list):
+                for b in breakdowns:
+                    if b.get('key') == 'time':
+                        time_value = b.get('value', '')
+                        if 'T' in str(time_value):
+                            time_str = str(time_value).replace('+0000', '+00:00').replace('Z', '+00:00')
+                            dt = datetime.fromisoformat(time_str.split('+')[0])
+                            return dt.hour
+                        elif ':' in str(time_value):
+                            return int(str(time_value).split(':')[0])
+                        else:
+                            return int(time_value)
+        except (TypeError, ValueError, KeyError) as e:
+            print(f"      [DEBUG] Hour extraction error: {str(e)}, row: {str(row)[:100]}")
+        return None
 
