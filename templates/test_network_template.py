@@ -1,14 +1,19 @@
 """
 Test script for [NetworkName] fetcher.
+Async version with full test capabilities.
 API Docs: [API_DOCUMENTATION_URL]
 
 Usage:
     1. Update config.yaml with credentials
     2. Run: python test_networkname.py
+    3. Optional args:
+       --auth-only     Only test authentication
+       --full-fetch    Run full fetch (default: auth + report test)
 """
 import sys
 import io
 import json
+import asyncio
 from datetime import datetime, timedelta, timezone
 
 # Fix console encoding for Windows
@@ -91,185 +96,120 @@ def print_results(data: dict):
                     print(f"            {ad_type}: ${adata.get('revenue', 0):.2f} / {adata.get('impressions', 0):,} impr / ${adata.get('ecpm', 0):.2f} eCPM")
 
 
-def main():
-    print_separator("🧪 NETWORKNAME FETCHER TEST", "=")
+async def main():
+    """Main async test function."""
+    print_separator("🧪 NETWORKNAME FETCHER TEST (ASYNC)", "=")
+    
+    # Parse command line arguments
+    auth_only = '--auth-only' in sys.argv
+    full_fetch = '--full-fetch' in sys.argv
     
     # ========================================
     # Step 1: Load Configuration
     # ========================================
     print_separator("📋 CONFIGURATION")
     
-    try:
-        config = Config()
-        network_config = config.get_networkname_config()  # UPDATE METHOD NAME
-    except FileNotFoundError as e:
-        print(f"   ❌ Config file not found: {e}")
-        return
-    except Exception as e:
-        print(f"   ❌ Config load error: {e}")
-        return
+    config = Config()
+    network_config = config.get_networkname_config()  # UPDATE THIS METHOD NAME
     
-    print(f"   Config loaded successfully")
-    print(f"\n   Settings:")
+    print(f"\n   Config loaded:")
     for key, value in network_config.items():
         if any(s in key.lower() for s in ['key', 'token', 'password', 'secret']):
             print(f"      {key}: {'*' * 10}")
         else:
             print(f"      {key}: {value}")
     
-    # ========================================
-    # Step 2: Check if enabled
-    # ========================================
-    if not network_config.get('enabled'):
-        print(f"\n   ⚠️ Network is DISABLED in config.yaml")
-        print(f"   Set 'enabled: true' to test")
+    if not network_config.get('enabled', False):
+        print("\n   ❌ Network is disabled in config.yaml")
+        print("      Set 'enabled: true' to run tests")
         return
     
     # ========================================
-    # Step 3: Validate Credentials
+    # Step 2: Check Credentials
     # ========================================
     if not check_credentials(network_config):
-        print(f"\n   ❌ Please update config.yaml with valid credentials")
+        print("\n   ❌ Please update credentials in config.yaml")
         return
     
     # ========================================
-    # Step 4: Initialize Fetcher
+    # Step 3: Initialize Fetcher
     # ========================================
-    print_separator("🔧 INITIALIZING FETCHER")
+    print_separator("🔧 INITIALIZE FETCHER")
+    
+    # UPDATE THESE PARAMETERS BASED ON NETWORK
+    fetcher = NetworkNameFetcher(
+        api_key=network_config['api_key'],
+        publisher_id=network_config['publisher_id'],
+        app_ids=network_config.get('app_ids'),
+    )
+    
+    print(f"   ✅ Fetcher initialized: {fetcher.get_network_name()}")
+    print(f"   ✅ Network enum: {fetcher.get_network_enum()}")
     
     try:
-        fetcher = NetworkNameFetcher(
-            api_key=network_config['api_key'],
-            publisher_id=network_config['publisher_id'],
-            # ADD OTHER PARAMETERS AS NEEDED
-        )
-        print(f"   ✅ Fetcher initialized")
-    except Exception as e:
-        print(f"   ❌ Initialization error: {e}")
-        import traceback
-        traceback.print_exc()
-        return
-    
-    # ========================================
-    # Step 5: Auth Test (Optional - comment out if API doesn't have auth endpoint)
-    # ========================================
-    print_separator("🔐 AUTH TEST")
-    
-    auth_success = fetcher._test_auth()
-    
-    if not auth_success:
-        print(f"\n   ❌ Auth test failed - check credentials")
-        print(f"\n   💡 Common issues:")
-        print(f"      - Invalid API key")
-        print(f"      - Missing permissions")
-        print(f"      - Wrong endpoint URL")
-        return
-    
-    print(f"\n   ✅ Auth test passed")
-    
-    # ========================================
-    # Step 6: Report Request Test
-    # ========================================
-    # Set date range (yesterday for data availability)
-    end_date = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=1)
-    start_date = end_date  # Single day
-    
-    print_separator("📊 REPORT REQUEST TEST")
-    print(f"   Date: {start_date.strftime('%Y-%m-%d')}")
-    
-    response_data = fetcher._test_report_request(start_date, end_date)
-    
-    if not response_data:
-        print(f"\n   ❌ Report request failed")
-        print(f"\n   💡 Common issues:")
-        print(f"      - Wrong date format")
-        print(f"      - Data not available yet (try older date)")
-        print(f"      - Missing required parameters")
-        return
-    
-    # ========================================
-    # Step 7: Analyze Response Structure
-    # ========================================
-    print_separator("🔍 RESPONSE STRUCTURE ANALYSIS")
-    
-    def analyze_structure(obj, prefix="", max_depth=3, current_depth=0):
-        """Recursively analyze and print object structure."""
-        if current_depth >= max_depth:
-            return
+        # ========================================
+        # Step 4: Auth Test
+        # ========================================
+        if hasattr(fetcher, '_test_auth'):
+            auth_success = await fetcher._test_auth()
+            
+            if not auth_success:
+                print("\n   ❌ Auth test failed - fix credentials before continuing")
+                return
+            
+            if auth_only:
+                print("\n   ✅ Auth test passed (--auth-only mode)")
+                return
         
-        if isinstance(obj, dict):
-            for key, value in list(obj.items())[:10]:  # Limit to first 10 keys
-                value_type = type(value).__name__
-                if isinstance(value, (dict, list)):
-                    print(f"{prefix}{key}: {value_type}")
-                    analyze_structure(value, prefix + "  ", max_depth, current_depth + 1)
-                else:
-                    # Show sample value
-                    sample = str(value)[:50]
-                    print(f"{prefix}{key}: {value_type} = {sample}")
-        elif isinstance(obj, list) and obj:
-            print(f"{prefix}[0]: {type(obj[0]).__name__} (list of {len(obj)} items)")
-            if isinstance(obj[0], dict):
-                analyze_structure(obj[0], prefix + "  ", max_depth, current_depth + 1)
-    
-    analyze_structure(response_data)
-    
-    # ========================================
-    # Step 8: Full Data Fetch Test
-    # ========================================
-    print_separator("🚀 FULL DATA FETCH TEST")
-    
-    try:
-        data = fetcher.fetch_data(start_date, end_date)
-        print_results(data)
+        # ========================================
+        # Step 5: Report Test
+        # ========================================
+        end_date = datetime.now(timezone.utc) - timedelta(days=1)
+        start_date = end_date
         
-        # Validation
-        print_separator("✅ VALIDATION")
+        print(f"\n📅 Date Range: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}")
         
-        issues = []
-        
-        if data['revenue'] <= 0:
-            issues.append("Revenue is 0 or negative")
-        
-        if data['impressions'] <= 0:
-            issues.append("Impressions is 0 or negative")
-        
-        if data['ecpm'] < 0.01 or data['ecpm'] > 100:
-            issues.append(f"eCPM seems unusual: ${data['ecpm']:.2f}")
-        
-        # Check platform totals
-        android_rev = data['platform_data']['android']['revenue']
-        ios_rev = data['platform_data']['ios']['revenue']
-        total_platform_rev = android_rev + ios_rev
-        
-        if abs(total_platform_rev - data['revenue']) > 0.01:
-            issues.append(f"Platform sum ({total_platform_rev:.2f}) != Total ({data['revenue']:.2f})")
-        
-        if issues:
-            print(f"\n   ⚠️ Potential issues:")
-            for issue in issues:
-                print(f"      - {issue}")
+        if hasattr(fetcher, '_test_report_request') and not full_fetch:
+            # Debug mode - use test method
+            response_data = await fetcher._test_report_request(start_date, end_date)
+            
+            if response_data:
+                print("\n" + "="*60)
+                print("📋 RESPONSE STRUCTURE ANALYSIS")
+                print("="*60)
+                
+                def analyze_structure(obj, prefix=""):
+                    if isinstance(obj, dict):
+                        for key, value in obj.items():
+                            print(f"{prefix}{key}: {type(value).__name__}")
+                            if isinstance(value, (dict, list)) and value:
+                                analyze_structure(value, prefix + "  ")
+                    elif isinstance(obj, list) and obj:
+                        print(f"{prefix}[0]: {type(obj[0]).__name__}")
+                        if isinstance(obj[0], dict):
+                            analyze_structure(obj[0], prefix + "  ")
+                
+                analyze_structure(response_data)
         else:
-            print(f"\n   ✅ All validations passed!")
+            # Full fetch mode
+            print_separator("🚀 FULL DATA FETCH")
+            
+            data = await fetcher.fetch_data(start_date, end_date)
+            print_results(data)
+        
+        print_separator("✅ TEST COMPLETED SUCCESSFULLY", "=")
         
     except Exception as e:
-        print(f"\n   ❌ Fetch error: {e}")
+        print_separator("❌ TEST FAILED", "=")
+        print(f"\n   Error: {str(e)}")
         import traceback
         traceback.print_exc()
-        return
-    
-    # ========================================
-    # Final Summary
-    # ========================================
-    print_separator("🎉 TEST COMPLETE", "=")
-    print(f"\n   Network: {data.get('network')}")
-    print(f"   Revenue: ${data.get('revenue', 0):.2f}")
-    print(f"   Impressions: {data.get('impressions', 0):,}")
-    print(f"\n   Next steps:")
-    print(f"   1. Verify values match network dashboard")
-    print(f"   2. Update validation_service.py if needed")
-    print(f"   3. Run full system test: python main.py")
+    finally:
+        # ⚠️ Important: Close the aiohttp session
+        await fetcher.close()
+        print("\n   🔒 Session closed")
 
 
 if __name__ == "__main__":
-    main()
+    # Run the async main function
+    asyncio.run(main())

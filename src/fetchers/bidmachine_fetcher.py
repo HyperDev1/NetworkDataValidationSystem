@@ -1,14 +1,21 @@
 """
 BidMachine SSP data fetcher implementation.
-Uses BidMachine Reporting API for fetching monetization data.
+Async version using aiohttp with retry support.
 API Docs: https://developers.bidmachine.io/reporting-api/retrieve-ssp-report-data
 """
 import json
-import time
-import requests
+import asyncio
+import logging
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List
-from .base_fetcher import NetworkDataFetcher
+
+import aiohttp
+
+from .base_fetcher import NetworkDataFetcher, FetchResult
+from ..enums import Platform, AdType, NetworkName
+
+
+logger = logging.getLogger(__name__)
 
 
 class BidMachineFetcher(NetworkDataFetcher):
@@ -24,33 +31,29 @@ class BidMachineFetcher(NetworkDataFetcher):
     
     # Platform mapping
     PLATFORM_MAP = {
-        'ios': 'ios',
-        'android': 'android',
-        'IOS': 'ios',
-        'ANDROID': 'android',
+        'ios': Platform.IOS,
+        'android': Platform.ANDROID,
+        'IOS': Platform.IOS,
+        'ANDROID': Platform.ANDROID,
     }
     
-    # Ad type mapping - BidMachine ad_type to our standard categories
-    # Based on BidMachine Ad Types:
-    # - banner → banner
-    # - interstitial, fullscreen, non_skippable_interstitial → interstitial
-    # - fullscreen_rewarded, skippable_video, non_skippable_video → rewarded
+    # Ad type mapping - BidMachine ad_type to AdType enum
     AD_TYPE_MAP = {
         # Banner
-        'banner': 'banner',
-        'native': 'banner',
-        'mrec': 'banner',
+        'banner': AdType.BANNER,
+        'native': AdType.BANNER,
+        'mrec': AdType.BANNER,
         # Interstitial
-        'interstitial': 'interstitial',
-        'fullscreen': 'interstitial',
-        'non_skippable_interstitial': 'interstitial',
+        'interstitial': AdType.INTERSTITIAL,
+        'fullscreen': AdType.INTERSTITIAL,
+        'non_skippable_interstitial': AdType.INTERSTITIAL,
         # Rewarded
-        'rewarded': 'rewarded',
-        'fullscreen_rewarded': 'rewarded',
-        'skippable_video': 'rewarded',
-        'non_skippable_video': 'rewarded',
-        'rewarded_video': 'rewarded',
-        'video': 'rewarded',
+        'rewarded': AdType.REWARDED,
+        'fullscreen_rewarded': AdType.REWARDED,
+        'skippable_video': AdType.REWARDED,
+        'non_skippable_video': AdType.REWARDED,
+        'rewarded_video': AdType.REWARDED,
+        'video': AdType.REWARDED,
     }
     
     def __init__(
@@ -67,25 +70,12 @@ class BidMachineFetcher(NetworkDataFetcher):
             password: BidMachine SSP account password (Basic Auth)
             app_bundle_ids: Optional comma-separated app bundle IDs to filter
         """
+        super().__init__()
         self.username = username
         self.password = password
         self.app_bundle_ids = [a.strip() for a in app_bundle_ids.split(',') if a.strip()] if app_bundle_ids else []
     
-    def _create_empty_platform_data(self) -> Dict[str, Any]:
-        """Create empty platform data structure."""
-        return {
-            'revenue': 0.0,
-            'impressions': 0,
-            'ecpm': 0.0,
-            'clicks': 0,
-            'ad_data': {
-                'banner': {'revenue': 0.0, 'impressions': 0, 'ecpm': 0.0, 'clicks': 0},
-                'interstitial': {'revenue': 0.0, 'impressions': 0, 'ecpm': 0.0, 'clicks': 0},
-                'rewarded': {'revenue': 0.0, 'impressions': 0, 'ecpm': 0.0, 'clicks': 0},
-            }
-        }
-    
-    def fetch_data(self, start_date: datetime, end_date: datetime) -> Dict[str, Any]:
+    async def fetch_data(self, start_date: datetime, end_date: datetime) -> FetchResult:
         """
         Fetch revenue and impression data for the given date range.
         
@@ -94,14 +84,13 @@ class BidMachineFetcher(NetworkDataFetcher):
             end_date: End date for data fetch
             
         Returns:
-            Dictionary containing revenue and impressions data
+            FetchResult containing revenue and impressions data
         """
         # Format dates as YYYY-MM-DD
         # Note: BidMachine API uses exclusive end date, so we add 1 day
         start_str = start_date.strftime('%Y-%m-%d')
         api_end_date = end_date + timedelta(days=1)
         api_end_str = api_end_date.strftime('%Y-%m-%d')
-        end_str = end_date.strftime('%Y-%m-%d')  # For response metadata
         
         # Build query parameters
         params = {
@@ -115,35 +104,48 @@ class BidMachineFetcher(NetworkDataFetcher):
         url = f"{self.BASE_URL}{self.REPORT_ENDPOINT}"
         max_retries = 3
         
+        auth = aiohttp.BasicAuth(self.username, self.password)
+        
         for attempt in range(max_retries):
-            response = requests.get(
-                url,
-                params=params,
-                auth=(self.username, self.password),
-                timeout=300  # Up to 5 min as per docs
-            )
-            
-            if response.status_code == 401:
-                raise Exception("BidMachine API authentication failed. Please check your username and password.")
-            
-            if response.status_code == 429:
-                # Rate limited - wait and retry
-                if attempt < max_retries - 1:
-                    wait_time = 15 * (attempt + 1)  # 15s, 30s, 45s
-                    time.sleep(wait_time)
+            try:
+                session = await self._get_session()
+                async with session.get(
+                    url,
+                    params=params,
+                    auth=auth,
+                    timeout=aiohttp.ClientTimeout(total=300)
+                ) as response:
+                    if response.status == 401:
+                        raise Exception("BidMachine API authentication failed. Please check your username and password.")
+                    
+                    if response.status == 429:
+                        # Rate limited - wait and retry
+                        if attempt < max_retries - 1:
+                            wait_time = 15 * (attempt + 1)  # 15s, 30s, 45s
+                            logger.warning(f"BidMachine rate limited, waiting {wait_time}s...")
+                            await asyncio.sleep(wait_time)
+                            continue
+                        else:
+                            raise Exception("BidMachine API rate limit exceeded. Please try again later.")
+                    
+                    if response.status != 200:
+                        text = await response.text()
+                        raise Exception(f"BidMachine API error: {response.status} - {text[:500]}")
+                    
+                    response_text = await response.text()
+                    break
+                    
+            except Exception as e:
+                if attempt < max_retries - 1 and 'rate limit' not in str(e).lower():
+                    logger.warning(f"BidMachine request failed (attempt {attempt + 1}): {e}")
+                    await asyncio.sleep(5)
                     continue
-                else:
-                    raise Exception("BidMachine API rate limit exceeded. Please try again later.")
-            
-            if response.status_code != 200:
-                raise Exception(f"BidMachine API error: {response.status_code} - {response.text[:500]}")
-            
-            break
+                raise
         
         # Parse NDJSON response (newline-delimited JSON)
-        rows = self._parse_ndjson_response(response.text)
+        rows = self._parse_ndjson_response(response_text)
         
-        return self._parse_response(rows, start_str, end_str)
+        return self._parse_response(rows, start_date, end_date)
     
     def _parse_ndjson_response(self, response_text: str) -> List[Dict[str, Any]]:
         """
@@ -174,51 +176,36 @@ class BidMachineFetcher(NetworkDataFetcher):
     def _parse_response(
         self, 
         rows: List[Dict[str, Any]], 
-        start_str: str, 
-        end_str: str
-    ) -> Dict[str, Any]:
+        start_date: datetime, 
+        end_date: datetime
+    ) -> FetchResult:
         """
         Parse BidMachine API response into standardized format.
         
-        Response row format (from NDJSON):
-        {
-            "date": "2018-12-01",
-            "country": "DE",
-            "publisher_id": 6,
-            "app_name": "App 1",
-            "app_bundle": "111111111",
-            "platform": "ios",
-            "ad_type": "interstitial",
-            "impressions": 271,
-            "clicks": 19,
-            "ctr": 7.01,
-            "ecpm": 1.550635,
-            "revenue": 0.420222
-        }
-        
         Args:
             rows: Parsed API response rows
-            start_str: Start date string
-            end_str: End date string
+            start_date: Start date for date range
+            end_date: End date for date range
             
         Returns:
-            Standardized data dictionary
+            FetchResult with standardized data
         """
-        # Initialize result structure
-        result = {
-            'revenue': 0.0,
-            'impressions': 0,
-            'ecpm': 0.0,
-            'clicks': 0,
-            'network': self.get_network_name(),
-            'date_range': {'start': start_str, 'end': end_str},
-            'platform_data': {
-                'android': self._create_empty_platform_data(),
-                'ios': self._create_empty_platform_data(),
-            }
-        }
+        # Initialize data structures using base class helpers
+        ad_data = self._init_ad_data()
+        platform_data = self._init_platform_data()
+        
+        total_revenue = 0.0
+        total_impressions = 0
         
         if not rows:
+            result = self._build_result(
+                start_date, end_date,
+                revenue=total_revenue,
+                impressions=total_impressions,
+                ad_data=ad_data,
+                platform_data=platform_data
+            )
+            self._finalize_ecpm(result, ad_data, platform_data)
             return result
         
         for row in rows:
@@ -233,51 +220,44 @@ class BidMachineFetcher(NetworkDataFetcher):
             # Extract metrics
             revenue = float(row.get('revenue', 0) or 0)
             impressions = int(row.get('impressions', 0) or 0)
-            clicks = int(row.get('clicks', 0) or 0)
             
-            # Extract platform
+            # Extract and normalize platform
             platform_raw = str(row.get('platform', 'android')).lower()
-            platform = self.PLATFORM_MAP.get(platform_raw, 'android')
+            platform = self._normalize_platform(platform_raw)
             
-            # Ensure platform is valid
-            if platform not in ['android', 'ios']:
-                platform = 'android'
-            
-            # Extract ad type
+            # Extract and normalize ad type
             ad_type_raw = str(row.get('ad_type', 'banner')).lower()
-            ad_type = self.AD_TYPE_MAP.get(ad_type_raw, 'banner')
+            ad_type = self._normalize_ad_type(ad_type_raw)
             
-            # Aggregate totals
-            result['revenue'] += revenue
-            result['impressions'] += impressions
-            result['clicks'] += clicks
+            # Accumulate totals
+            total_revenue += revenue
+            total_impressions += impressions
             
-            # Aggregate by platform
-            result['platform_data'][platform]['revenue'] += revenue
-            result['platform_data'][platform]['impressions'] += impressions
-            result['platform_data'][platform]['clicks'] += clicks
-            
-            # Aggregate by ad type within platform
-            result['platform_data'][platform]['ad_data'][ad_type]['revenue'] += revenue
-            result['platform_data'][platform]['ad_data'][ad_type]['impressions'] += impressions
-            result['platform_data'][platform]['ad_data'][ad_type]['clicks'] += clicks
+            # Use base class helper to accumulate metrics
+            self._accumulate_metrics(
+                platform_data, ad_data,
+                platform, ad_type,
+                revenue, impressions
+            )
         
-        # Calculate eCPMs
-        if result['impressions'] > 0:
-            result['ecpm'] = (result['revenue'] / result['impressions']) * 1000
+        # Build result using base class helper
+        result = self._build_result(
+            start_date, end_date,
+            revenue=total_revenue,
+            impressions=total_impressions,
+            ad_data=ad_data,
+            platform_data=platform_data
+        )
         
-        for platform in ['android', 'ios']:
-            p_data = result['platform_data'][platform]
-            if p_data['impressions'] > 0:
-                p_data['ecpm'] = (p_data['revenue'] / p_data['impressions']) * 1000
-            
-            for ad_type in ['banner', 'interstitial', 'rewarded']:
-                ad_data = p_data['ad_data'][ad_type]
-                if ad_data['impressions'] > 0:
-                    ad_data['ecpm'] = (ad_data['revenue'] / ad_data['impressions']) * 1000
+        # Finalize eCPM calculations
+        self._finalize_ecpm(result, ad_data, platform_data)
         
         return result
     
     def get_network_name(self) -> str:
         """Return the name of the network."""
-        return "BidMachine Bidding"
+        return NetworkName.BIDMACHINE.display_name
+    
+    def get_network_enum(self) -> NetworkName:
+        """Return the NetworkName enum."""
+        return NetworkName.BIDMACHINE

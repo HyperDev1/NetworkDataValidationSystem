@@ -1,7 +1,17 @@
 ﻿# Network Data Validation System Dependencies
 
-# HTTP requests
+# HTTP requests (sync - for backward compatibility)
 requests>=2.28.0
+
+# Async HTTP client
+aiohttp>=3.9.0
+aiofiles>=23.0.0
+
+# Retry logic with exponential backoff
+tenacity>=8.2.0
+
+# Data validation and settings
+pydantic>=2.5.0
 
 # YAML configuration
 PyYAML>=6.0

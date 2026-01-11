@@ -1,18 +1,22 @@
 """
 [NetworkName] data fetcher implementation.
+Async version using aiohttp with retry support.
 API Docs: [API_DOCUMENTATION_URL]
 
 PLACEHOLDER TEMPLATE - Replace all [PLACEHOLDERS] with actual values
 """
-import json
-import requests
+import logging
 from datetime import datetime
 from typing import Dict, Any, Optional
-from .base_fetcher import NetworkDataFetcher
+
+from .base_fetcher import NetworkDataFetcher, FetchResult
+from ..enums import Platform, AdType, NetworkName
+
+logger = logging.getLogger(__name__)
 
 
 class NetworkNameFetcher(NetworkDataFetcher):
-    """Fetcher for [NetworkName] monetization data."""
+    """Async fetcher for [NetworkName] monetization data."""
     
     # ============================================================
     # API CONFIGURATION - Update based on API documentation
@@ -22,30 +26,30 @@ class NetworkNameFetcher(NetworkDataFetcher):
     REPORT_ENDPOINT = "/v1/reports/summary"  # Report endpoint
     
     # ============================================================
-    # MAPPING CONSTANTS - Update based on API response values
+    # ENUM-BASED MAPPING CONSTANTS - Update based on API response values
     # ============================================================
     
-    # Platform mapping: API value → standard value
+    # Platform mapping: API value → Platform enum
     PLATFORM_MAP = {
-        'ANDROID': 'android',
-        'IOS': 'ios',
-        'android': 'android',
-        'ios': 'ios',
-        'PLATFORM_TYPE_ANDROID': 'android',
-        'PLATFORM_TYPE_IOS': 'ios',
+        'ANDROID': Platform.ANDROID,
+        'IOS': Platform.IOS,
+        'android': Platform.ANDROID,
+        'ios': Platform.IOS,
+        'PLATFORM_TYPE_ANDROID': Platform.ANDROID,
+        'PLATFORM_TYPE_IOS': Platform.IOS,
         # Add more mappings based on API response
     }
     
-    # Ad type mapping: API value → standard value
+    # Ad type mapping: API value → AdType enum
     AD_TYPE_MAP = {
-        'BANNER': 'banner',
-        'INTERSTITIAL': 'interstitial',
-        'REWARDED': 'rewarded',
-        'REWARDED_VIDEO': 'rewarded',
-        'REWARD_VIDEO': 'rewarded',
-        'NATIVE': 'banner',
-        'MREC': 'banner',
-        'APP_OPEN': 'interstitial',
+        'BANNER': AdType.BANNER,
+        'INTERSTITIAL': AdType.INTERSTITIAL,
+        'REWARDED': AdType.REWARDED,
+        'REWARDED_VIDEO': AdType.REWARDED,
+        'REWARD_VIDEO': AdType.REWARDED,
+        'NATIVE': AdType.BANNER,
+        'MREC': AdType.BANNER,
+        'APP_OPEN': AdType.INTERSTITIAL,
         # Add more mappings based on API response
     }
     
@@ -76,6 +80,7 @@ class NetworkNameFetcher(NetworkDataFetcher):
             publisher_id: Publisher/Account ID
             app_ids: Optional comma-separated app IDs to filter
         """
+        super().__init__()  # ⚠️ Required - creates aiohttp session
         self.api_key = api_key
         self.publisher_id = publisher_id
         self.app_ids = [a.strip() for a in app_ids.split(',') if a.strip()] if app_ids else []
@@ -85,7 +90,7 @@ class NetworkNameFetcher(NetworkDataFetcher):
     # DEBUG METHODS - Use these for testing
     # ============================================================
     
-    def _test_auth(self) -> bool:
+    async def _test_auth(self) -> bool:
         """
         Test authentication - DEBUG METHOD.
         Call this first to verify credentials work.
@@ -98,26 +103,19 @@ class NetworkNameFetcher(NetworkDataFetcher):
         
         print(f"\n📤 REQUEST:")
         print(f"   URL: {self.BASE_URL}{self.AUTH_ENDPOINT}")
-        print(f"   Headers: {json.dumps(self._safe_headers(headers), indent=2)}")
         
         try:
-            # Adjust based on auth type (GET or POST)
-            response = requests.get(
+            # Use base class async method
+            response = await self._get_json(
                 f"{self.BASE_URL}{self.AUTH_ENDPOINT}",
-                headers=headers,
-                timeout=30
+                headers=headers
             )
             
             print(f"\n📥 RESPONSE:")
-            print(f"   Status: {response.status_code}")
+            import json
+            print(f"   Body:\n{json.dumps(response, indent=2)[:1000]}")
             
-            try:
-                response_json = response.json()
-                print(f"   Body:\n{json.dumps(response_json, indent=2)}")
-            except:
-                print(f"   Body (raw): {response.text[:500]}")
-            
-            return response.status_code == 200
+            return True
             
         except Exception as e:
             print(f"\n❌ ERROR: {e}")
@@ -125,7 +123,7 @@ class NetworkNameFetcher(NetworkDataFetcher):
             traceback.print_exc()
             return False
     
-    def _test_report_request(self, start_date: datetime, end_date: datetime) -> Dict:
+    async def _test_report_request(self, start_date: datetime, end_date: datetime) -> Dict:
         """
         Test report request - DEBUG METHOD.
         Call this after auth test passes.
@@ -140,33 +138,23 @@ class NetworkNameFetcher(NetworkDataFetcher):
         print(f"\n📤 REQUEST:")
         print(f"   URL: {self.BASE_URL}{self.REPORT_ENDPOINT}")
         print(f"   Method: POST")
-        print(f"   Headers: {json.dumps(self._safe_headers(headers), indent=2)}")
+        import json
         print(f"   Payload:\n{json.dumps(payload, indent=2)}")
         
         try:
-            response = requests.post(
+            response_json = await self._post_json(
                 f"{self.BASE_URL}{self.REPORT_ENDPOINT}",
                 headers=headers,
-                json=payload,
-                timeout=60
+                json=payload
             )
             
             print(f"\n📥 RESPONSE:")
-            print(f"   Status: {response.status_code}")
-            
-            try:
-                response_json = response.json()
-                # Pretty print (truncate if too long)
-                response_str = json.dumps(response_json, indent=2)
-                if len(response_str) > 3000:
-                    print(f"   Body (truncated):\n{response_str[:3000]}...")
-                    print(f"\n   [Response truncated - {len(response_str)} chars total]")
-                else:
-                    print(f"   Body:\n{response_str}")
-                return response_json
-            except:
-                print(f"   Body (raw): {response.text[:1000]}")
-                return {}
+            response_str = json.dumps(response_json, indent=2)
+            if len(response_str) > 3000:
+                print(f"   Body (truncated):\n{response_str[:3000]}...")
+            else:
+                print(f"   Body:\n{response_str}")
+            return response_json
                 
         except Exception as e:
             print(f"\n❌ ERROR: {e}")
@@ -184,13 +172,6 @@ class NetworkNameFetcher(NetworkDataFetcher):
             'Authorization': f'Bearer {self.api_key}',
             'Content-Type': 'application/json',
             'Accept': 'application/json',
-        }
-    
-    def _safe_headers(self, headers: Dict) -> Dict:
-        """Return headers with sensitive values masked."""
-        return {
-            k: '***' if any(s in k.lower() for s in ['auth', 'key', 'token']) else v 
-            for k, v in headers.items()
         }
     
     def _build_report_payload(self, start_date: datetime, end_date: datetime) -> Dict:
@@ -213,55 +194,45 @@ class NetworkNameFetcher(NetworkDataFetcher):
         
         return payload
     
-    def _create_empty_platform_data(self) -> Dict[str, Any]:
-        """Create empty platform data structure."""
-        return {
-            'revenue': 0.0,
-            'impressions': 0,
-            'ecpm': 0.0,
-            'ad_data': {
-                'banner': {'revenue': 0.0, 'impressions': 0, 'ecpm': 0.0},
-                'interstitial': {'revenue': 0.0, 'impressions': 0, 'ecpm': 0.0},
-                'rewarded': {'revenue': 0.0, 'impressions': 0, 'ecpm': 0.0},
-            }
-        }
-    
-    def _calculate_ecpms(self, data: Dict):
-        """Calculate all eCPM values."""
-        # Grand total
-        if data['impressions'] > 0:
-            data['ecpm'] = (data['revenue'] / data['impressions']) * 1000
-        
-        # Per platform and ad type
-        for platform in ['android', 'ios']:
-            pdata = data['platform_data'][platform]
-            if pdata['impressions'] > 0:
-                pdata['ecpm'] = (pdata['revenue'] / pdata['impressions']) * 1000
-            
-            for ad_type in ['banner', 'interstitial', 'rewarded']:
-                adata = pdata['ad_data'][ad_type]
-                if adata['impressions'] > 0:
-                    adata['ecpm'] = (adata['revenue'] / adata['impressions']) * 1000
-    
     # ============================================================
     # MAIN METHODS
     # ============================================================
     
-    def _parse_response(self, response_data: Dict) -> Dict[str, Any]:
-        """Parse API response to standard format."""
-        print("\n🔄 PARSING RESPONSE")
+    async def fetch_data(self, start_date: datetime, end_date: datetime) -> FetchResult:
+        """
+        Fetch revenue and impression data for the given date range.
         
-        # Initialize result structure
-        result = {
-            'revenue': 0.0,
-            'impressions': 0,
-            'ecpm': 0.0,
-            'network': self.get_network_name(),
-            'platform_data': {
-                'android': self._create_empty_platform_data(),
-                'ios': self._create_empty_platform_data(),
-            }
-        }
+        Uses aiohttp for async HTTP requests with retry support.
+        
+        Args:
+            start_date: Start date for data fetch
+            end_date: End date for data fetch
+            
+        Returns:
+            FetchResult containing revenue and impressions data
+        """
+        logger.debug(f"Fetching {self.get_network_name()} data for {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}")
+        
+        # Initialize data structures using base class helpers
+        ad_data = self._init_ad_data()
+        platform_data = self._init_platform_data()
+        
+        total_revenue = 0.0
+        total_impressions = 0
+        
+        # Build and send request
+        headers = self._get_auth_headers()
+        payload = self._build_report_payload(start_date, end_date)
+        
+        try:
+            response_data = await self._post_json(
+                f"{self.BASE_URL}{self.REPORT_ENDPOINT}",
+                headers=headers,
+                json=payload
+            )
+        except Exception as e:
+            logger.error(f"{self.get_network_name()} API error: {e}")
+            raise Exception(f"{self.get_network_name()} API error: {str(e)}")
         
         # Get data array
         if self.RESPONSE_DATA_KEY:
@@ -269,142 +240,60 @@ class NetworkNameFetcher(NetworkDataFetcher):
         else:
             data_rows = response_data if isinstance(response_data, list) else []
         
-        print(f"   Found {len(data_rows)} rows to process")
+        logger.debug(f"Received {len(data_rows)} rows from {self.get_network_name()}")
         
-        # Track unique values for debugging
-        unique_platforms = set()
-        unique_ad_types = set()
-        
-        for i, row in enumerate(data_rows):
+        # Process rows
+        for row in data_rows:
             # Extract raw values
             platform_raw = row.get(self.PLATFORM_FIELD, '')
             ad_type_raw = row.get(self.AD_TYPE_FIELD, '')
             revenue_raw = row.get(self.REVENUE_FIELD, 0)
             impressions_raw = row.get(self.IMPRESSIONS_FIELD, 0)
             
-            # Track unique values
-            unique_platforms.add(platform_raw)
-            unique_ad_types.add(ad_type_raw)
-            
-            # Map to standard values
+            # Map to enums using class mappings or base class helpers
             platform = self.PLATFORM_MAP.get(platform_raw)
-            if not platform and platform_raw:
-                platform = platform_raw.lower()
+            if not platform:
+                platform = self._normalize_platform(platform_raw)
             
             ad_type = self.AD_TYPE_MAP.get(ad_type_raw)
-            if not ad_type and ad_type_raw:
-                ad_type = ad_type_raw.lower()
+            if not ad_type:
+                ad_type = self._normalize_ad_type(ad_type_raw)
             
             # Scale revenue
             revenue = float(revenue_raw) / self.REVENUE_SCALE if revenue_raw else 0.0
             impressions = int(impressions_raw) if impressions_raw else 0
             
-            # Debug first few rows
-            if i < 5:
-                print(f"\n   Row {i+1}:")
-                print(f"      Platform: '{platform_raw}' → '{platform}'")
-                print(f"      Ad Type: '{ad_type_raw}' → '{ad_type}'")
-                print(f"      Revenue: {revenue_raw} → ${revenue:.4f}")
-                print(f"      Impressions: {impressions:,}")
+            # Accumulate totals
+            total_revenue += revenue
+            total_impressions += impressions
             
-            # Validate platform
-            if platform not in ['android', 'ios']:
-                if i < 5:
-                    print(f"      ⚠️ Skipping unknown platform")
-                continue
-            
-            # Validate ad type
-            if ad_type not in ['banner', 'interstitial', 'rewarded']:
-                if i < 5:
-                    print(f"      ⚠️ Skipping unknown ad type")
-                continue
-            
-            # Aggregate
-            result['platform_data'][platform]['revenue'] += revenue
-            result['platform_data'][platform]['impressions'] += impressions
-            result['platform_data'][platform]['ad_data'][ad_type]['revenue'] += revenue
-            result['platform_data'][platform]['ad_data'][ad_type]['impressions'] += impressions
-            result['revenue'] += revenue
-            result['impressions'] += impressions
+            # Use base class helper to accumulate metrics
+            self._accumulate_metrics(
+                platform_data, ad_data,
+                platform, ad_type,
+                revenue, impressions
+            )
         
-        # Show unique values found (helps with mapping)
-        print(f"\n   📋 Unique platforms found: {unique_platforms}")
-        print(f"   📋 Unique ad types found: {unique_ad_types}")
-        
-        # Calculate eCPMs
-        self._calculate_ecpms(result)
-        
-        # Print summary
-        print(f"\n📊 AGGREGATION SUMMARY:")
-        print(f"   Total Revenue: ${result['revenue']:.2f}")
-        print(f"   Total Impressions: {result['impressions']:,}")
-        print(f"   Total eCPM: ${result['ecpm']:.2f}")
-        
-        for platform in ['android', 'ios']:
-            pdata = result['platform_data'][platform]
-            if pdata['impressions'] > 0:
-                print(f"\n   {platform.upper()}: ${pdata['revenue']:.2f} / {pdata['impressions']:,} impr")
-                for ad_type, adata in pdata['ad_data'].items():
-                    if adata['impressions'] > 0:
-                        print(f"      {ad_type}: ${adata['revenue']:.2f} / {adata['impressions']:,} impr")
-        
-        return result
-    
-    def fetch_data(self, start_date: datetime, end_date: datetime) -> Dict[str, Any]:
-        """
-        Fetch revenue and impression data for the given date range.
-        
-        Args:
-            start_date: Start date for data fetch
-            end_date: End date for data fetch
-            
-        Returns:
-            Dictionary containing revenue and impressions data
-        """
-        print(f"\n{'='*60}")
-        print(f"📊 {self.get_network_name()} Data Fetch")
-        print(f"   Date Range: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}")
-        print(f"{'='*60}")
-        
-        # Build request
-        headers = self._get_auth_headers()
-        payload = self._build_report_payload(start_date, end_date)
-        
-        print(f"\n📤 Request Payload:\n{json.dumps(payload, indent=2)}")
-        
-        # Make request
-        response = requests.post(
-            f"{self.BASE_URL}{self.REPORT_ENDPOINT}",
-            headers=headers,
-            json=payload,
-            timeout=60
+        # Build result using base class helper
+        result = self._build_result(
+            start_date, end_date,
+            revenue=total_revenue,
+            impressions=total_impressions,
+            ad_data=ad_data,
+            platform_data=platform_data
         )
         
-        print(f"\n📥 Response Status: {response.status_code}")
+        # Finalize eCPM calculations
+        self._finalize_ecpm(result, ad_data, platform_data)
         
-        if response.status_code != 200:
-            error_text = response.text[:500]
-            print(f"   ❌ Error Response:\n{error_text}")
-            raise Exception(f"API Error: {response.status_code} - {error_text}")
-        
-        response_data = response.json()
-        
-        # Count rows
-        if self.RESPONSE_DATA_KEY:
-            row_count = len(response_data.get(self.RESPONSE_DATA_KEY, []))
-        else:
-            row_count = len(response_data) if isinstance(response_data, list) else 0
-        print(f"   ✅ Received {row_count} rows")
-        
-        # Parse and return
-        result = self._parse_response(response_data)
-        result['date_range'] = {
-            'start': start_date.strftime('%Y-%m-%d'),
-            'end': end_date.strftime('%Y-%m-%d')
-        }
+        logger.info(f"{self.get_network_name()}: ${result['revenue']:.2f} revenue, {result['impressions']:,} impressions")
         
         return result
     
     def get_network_name(self) -> str:
-        """Return the name of the network."""
-        return "NetworkName"  # UPDATE THIS
+        """Return the display name of the network."""
+        return NetworkName.NETWORKNAME.display_name  # UPDATE THIS
+    
+    def get_network_enum(self) -> NetworkName:
+        """Return the NetworkName enum."""
+        return NetworkName.NETWORKNAME  # UPDATE THIS
