@@ -618,18 +618,28 @@ class ValidationService:
         """
         from datetime import timezone
         
-        # Get revenue delta threshold from config
+        # Get revenue delta threshold and minimum revenue from config
         threshold = self.config.get_slack_revenue_delta_threshold()
+        min_revenue = self.config.get_slack_min_revenue_for_alerts()
         
-        # Filter rows by revenue delta threshold (app/ad_type level)
+        # Filter rows by revenue delta threshold AND minimum revenue (app/ad_type level)
         total_rows = len(comparison_rows)
         filtered_rows = []
+        low_revenue_rows = 0
         for row in comparison_rows:
+            max_rev = row.get('max_revenue', 0)
+            
+            # Skip rows with revenue below minimum threshold
+            if max_rev < min_revenue:
+                low_revenue_rows += 1
+                continue
+            
             rev_delta_value = self._parse_delta_percentage(row.get('rev_delta', '0%'))
             if abs(rev_delta_value) > threshold:
                 filtered_rows.append(row)
         
         filtered_count = len(filtered_rows)
+        checked_rows = total_rows - low_revenue_rows
         
         blocks = []
         now_utc = datetime.now(timezone.utc)
@@ -676,14 +686,20 @@ class ValidationService:
             overall_net_rev = totals.get('network_revenue', 0)
             overall_rev_delta = ((overall_net_rev - overall_max_rev) / overall_max_rev * 100) if overall_max_rev > 0 else 0
             
+            # Build status message
+            status_msg = f"✅ *Tüm network'ler normal*\n\n"
+            status_msg += f"Revenue delta threshold: *±{threshold}%*\n"
+            if low_revenue_rows > 0:
+                status_msg += f"Toplam {checked_rows} satır kontrol edildi ({low_revenue_rows} satır <${min_revenue:.0f} revenue), hiçbiri threshold'u aşmadı.\n\n"
+            else:
+                status_msg += f"Toplam {total_rows} satır kontrol edildi, hiçbiri threshold'u aşmadı.\n\n"
+            status_msg += f"💰 *Toplam:* MAX ${overall_max_rev:,.2f} → Network ${overall_net_rev:,.2f} ({overall_rev_delta:+.1f}%)"
+            
             blocks.append({
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": f"✅ *Tüm network'ler normal*\n\n"
-                            f"Revenue delta threshold: *±{threshold}%*\n"
-                            f"Toplam {total_rows} satır kontrol edildi, hiçbiri threshold'u aşmadı.\n\n"
-                            f"💰 *Toplam:* MAX ${overall_max_rev:,.2f} → Network ${overall_net_rev:,.2f} ({overall_rev_delta:+.1f}%)"
+                    "text": status_msg
                 }
             })
             
@@ -712,13 +728,18 @@ class ValidationService:
         })
         
         # Context with summary
+        context_msg = f"📅 *Generated:* {now_utc.strftime('%Y-%m-%d %H:%M:%S')} UTC | "
+        if low_revenue_rows > 0:
+            context_msg += f"⚠️ *{filtered_count}/{checked_rows}* satır threshold (±{threshold}%) aştı ({low_revenue_rows} satır <${min_revenue:.0f} revenue) | "
+        else:
+            context_msg += f"⚠️ *{filtered_count}/{total_rows}* satır threshold (±{threshold}%) aştı | "
+        context_msg += f"📡 *{affected_networks}/{total_networks}* network etkilendi"
+        
         blocks.append({
             "type": "context",
             "elements": [{
                 "type": "mrkdwn",
-                "text": f"📅 *Generated:* {now_utc.strftime('%Y-%m-%d %H:%M:%S')} UTC | "
-                        f"⚠️ *{filtered_count}/{total_rows}* satır threshold (±{threshold}%) aştı | "
-                        f"📡 *{affected_networks}/{total_networks}* network etkilendi"
+                "text": context_msg
             }]
         })
         

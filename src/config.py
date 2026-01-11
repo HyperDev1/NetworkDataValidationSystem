@@ -71,6 +71,18 @@ class Config:
         slack_config = self.get_slack_config()
         return float(slack_config.get('revenue_delta_threshold', 5.0))
     
+    def get_slack_min_revenue_for_alerts(self) -> float:
+        """
+        Get minimum revenue threshold for Slack alerts.
+        Only rows with max_revenue >= this value will be checked against percentage threshold.
+        This prevents alerts on low-revenue placements with high percentage differences.
+        
+        Returns:
+            Minimum revenue in dollars (default: 25.0)
+        """
+        slack_config = self.get_slack_config()
+        return float(slack_config.get('min_revenue_for_alerts', 25.0))
+    
     def get_validation_config(self) -> Dict[str, Any]:
         """Get validation/report settings."""
         return self.config.get('validation', {})
