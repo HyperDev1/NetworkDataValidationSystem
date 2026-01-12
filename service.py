@@ -9,11 +9,27 @@ import signal
 import subprocess
 import psutil
 
-# Paths
+# Add src to path for imports
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, BASE_DIR)
+
+from src.config import Config
+
+# Paths
 PID_FILE = os.path.join(BASE_DIR, "service.pid")
 LOG_FILE = os.path.join(BASE_DIR, "service.log")
 MAIN_SCRIPT = os.path.join(BASE_DIR, "main.py")
+
+
+def get_scheduling_info():
+    """Get scheduling info from config."""
+    try:
+        config = Config()
+        interval_hours = config.get_scheduling_interval_hours()
+        scheduled_times = config.get_scheduled_times()
+        return interval_hours, scheduled_times
+    except Exception:
+        return 3, ["00:00", "03:00", "06:00", "09:00", "12:00", "15:00", "18:00", "21:00"]
 
 
 def get_pid():
@@ -111,9 +127,11 @@ def start_service():
     time.sleep(2)
     
     if is_running(process.pid):
+        interval_hours, scheduled_times = get_scheduling_info()
         print(f"✅ Servis başarıyla başlatıldı (PID: {process.pid})")
         print(f"📝 Log dosyası: {LOG_FILE}")
-        print(f"\n📅 Zamanlama: Her gün 09:30 ve 17:30")
+        print(f"\n📅 Zamanlama: Her {interval_hours} saatte bir")
+        print(f"🕐 Çalışma saatleri: {', '.join(scheduled_times)}")
         return True
     else:
         print("❌ Servis başlatılamadı. Log dosyasını kontrol edin.")
@@ -189,7 +207,10 @@ def status_service():
             print(f"   PID: {pid}")
             print(f"   Başlangıç: {create_time}")
             print(f"   Bellek: {memory:.1f} MB")
-            print(f"\n📅 Zamanlama: Her gün 09:30 ve 17:30")
+            
+            interval_hours, scheduled_times = get_scheduling_info()
+            print(f"\n📅 Zamanlama: Her {interval_hours} saatte bir")
+            print(f"🕐 Çalışma saatleri: {', '.join(scheduled_times)}")
             print(f"📝 Log: {LOG_FILE}")
             
         except (psutil.NoSuchProcess, psutil.AccessDenied):
