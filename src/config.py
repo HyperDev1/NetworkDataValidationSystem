@@ -91,6 +91,50 @@ class Config:
         """Get scheduling settings."""
         return self.config.get('scheduling', {})
     
+    def get_scheduling_interval_hours(self) -> int:
+        """
+        Get scheduling interval in hours.
+        
+        Returns:
+            Interval in hours (default: 3)
+        """
+        scheduling_config = self.get_scheduling_config()
+        return int(scheduling_config.get('interval_hours', 3))
+    
+    def get_scheduling_start_time(self) -> str:
+        """
+        Get scheduling start time (base time for interval calculations).
+        
+        Returns:
+            Start time in HH:MM format (default: "00:00")
+        """
+        scheduling_config = self.get_scheduling_config()
+        return scheduling_config.get('start_time', '00:00')
+    
+    def get_scheduled_times(self) -> List[str]:
+        """
+        Calculate all scheduled run times based on start_time and interval_hours.
+        
+        Returns:
+            List of times in HH:MM format (e.g., ["00:00", "03:00", "06:00", ...])
+        """
+        interval_hours = self.get_scheduling_interval_hours()
+        start_time = self.get_scheduling_start_time()
+        
+        # Parse start time
+        start_hour, start_minute = map(int, start_time.split(':'))
+        
+        # Generate all scheduled times
+        times = []
+        current_hour = start_hour
+        while True:
+            times.append(f"{current_hour:02d}:{start_minute:02d}")
+            current_hour = (current_hour + interval_hours) % 24
+            if current_hour == start_hour:
+                break
+        
+        return sorted(times)
+    
     def get_networks_config(self) -> Dict[str, Any]:
         """Get all networks configuration."""
         return self.config.get('networks', {})

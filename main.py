@@ -56,11 +56,14 @@ def main():
     if len(sys.argv) > 1 and sys.argv[1] == '--help':
         print("\nKullanım:")
         print("  python main.py              - Bir kez çalıştır ve çık (varsayılan)")
-        print("  python main.py --schedule   - Zamanlamayı başlat (09:30 ve 17:30)")
+        print("  python main.py --schedule   - Zamanlamayı başlat (config.yaml'dan interval ve start_time)")
         print("  python main.py --schedule-now - Önce çalıştır, sonra zamanlamayı başlat")
         print("  python main.py --test-slack - Slack bağlantısını test et")
         print("  python main.py --start-date 2026-01-01 --end-date 2026-01-10 - Belirli tarih aralığı için backfill")
         print("  python main.py --help       - Bu yardım mesajını göster")
+        print("\nZamanlama ayarları config.yaml'dan okunur:")
+        print("  scheduling.interval_hours: Çalışma aralığı (saat)")
+        print("  scheduling.start_time: Başlangıç saati (HH:MM)")
         sys.exit(0)
     
     # Load configuration
@@ -102,15 +105,19 @@ def main():
             service.test_slack_integration()
             sys.exit(0)
         elif sys.argv[1] == '--schedule':
-            # Run with fixed time scheduling (09:30 and 17:30)
+            # Run with config-based interval scheduling
+            interval_hours = config.get_scheduling_interval_hours()
+            scheduled_times = config.get_scheduled_times()
+            
             print("\n🕐 Zamanlama aktif!")
-            print("   📅 Her gün saat 09:30 ve 17:30'da çalışacak")
+            print(f"   📅 Her {interval_hours} saatte bir çalışacak")
+            print(f"   🕐 Çalışma saatleri: {', '.join(scheduled_times)}")
             print("   ⏰ Şu anki saat:", datetime.now().strftime("%H:%M:%S"))
             print("\nDurdurmak için Ctrl+C basın\n")
             
-            # Schedule at specific times
-            schedule.every().day.at("09:30").do(lambda: run_validation_check(service))
-            schedule.every().day.at("17:30").do(lambda: run_validation_check(service))
+            # Schedule at calculated times from config
+            for run_time in scheduled_times:
+                schedule.every().day.at(run_time).do(lambda: run_validation_check(service))
             
             # Show next run time
             next_run = schedule.next_run()
@@ -126,9 +133,13 @@ def main():
                 print("\n\n🛑 Kapatılıyor...")
                 sys.exit(0)
         elif sys.argv[1] == '--schedule-now':
-            # Run immediately then continue with schedule
+            # Run immediately then continue with config-based schedule
+            interval_hours = config.get_scheduling_interval_hours()
+            scheduled_times = config.get_scheduled_times()
+            
             print("\n🕐 Zamanlama aktif (önce bir kez çalıştırılacak)!")
-            print("   📅 Her gün saat 09:30 ve 17:30'da çalışacak")
+            print(f"   📅 Her {interval_hours} saatte bir çalışacak")
+            print(f"   🕐 Çalışma saatleri: {', '.join(scheduled_times)}")
             print("   ⏰ Şu anki saat:", datetime.now().strftime("%H:%M:%S"))
             print("\nDurdurmak için Ctrl+C basın\n")
             
@@ -136,9 +147,9 @@ def main():
             print("🚀 Şimdi çalıştırılıyor...\n")
             run_validation_check(service)
             
-            # Schedule at specific times
-            schedule.every().day.at("09:30").do(lambda: run_validation_check(service))
-            schedule.every().day.at("17:30").do(lambda: run_validation_check(service))
+            # Schedule at calculated times from config
+            for run_time in scheduled_times:
+                schedule.every().day.at(run_time).do(lambda: run_validation_check(service))
             
             # Show next run time
             next_run = schedule.next_run()
