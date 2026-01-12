@@ -453,15 +453,36 @@ class ValidationService:
         import time
         start_time = time.time()
         
-        async def fetch_network(network_name: str, fetcher) -> Tuple[str, Optional[Dict[str, Any]]]:
-            """Fetch data from a single network with error handling and cleanup."""
+        # Networks that may need fallback to earlier dates
+        fallback_networks = {'meta', 'admob', 'dt_exchange'}
+        max_fallback_days = 2  # Try up to 2 days earlier if data is empty
+        
+        async def fetch_network_with_fallback(network_name: str, fetcher) -> Tuple[str, Optional[Dict[str, Any]]]:
+            """Fetch data from a single network with fallback for empty results."""
             try:
-                # Use appropriate date range for each network
+                # Determine initial date range
                 if network_name == 'meta':
-                    data = await fetcher.fetch_data(meta_start_date, meta_end_date)
-                    logger.info(f"Meta using T-3 daily mode (date: {meta_end_date.strftime('%Y-%m-%d')})")
+                    fetch_start = meta_start_date
+                    fetch_end = meta_end_date
                 else:
-                    data = await fetcher.fetch_data(start_date, end_date)
+                    fetch_start = start_date
+                    fetch_end = end_date
+                
+                # Try fetching with fallback for networks that may have delayed data
+                data = await fetcher.fetch_data(fetch_start, fetch_end)
+                
+                # Check if data is empty and network supports fallback
+                if network_name in fallback_networks and data.get('impressions', 0) == 0:
+                    # Try earlier dates
+                    for fallback_day in range(1, max_fallback_days + 1):
+                        earlier_date = fetch_end - timedelta(days=fallback_day)
+                        logger.info(f"{network_name}: No data for {fetch_end.strftime('%Y-%m-%d')}, trying {earlier_date.strftime('%Y-%m-%d')}...")
+                        print(f"   ⏳ {network_name}: No data, trying {earlier_date.strftime('%Y-%m-%d')}...")
+                        
+                        data = await fetcher.fetch_data(earlier_date, earlier_date)
+                        if data.get('impressions', 0) > 0:
+                            logger.info(f"{network_name}: Found data for {earlier_date.strftime('%Y-%m-%d')}")
+                            break
                 
                 date_range = data.get('date_range', {})
                 date_info = f"({date_range.get('start', '?')} to {date_range.get('end', '?')})"
@@ -482,7 +503,7 @@ class ValidationService:
         
         # Create tasks for all networks
         tasks = [
-            fetch_network(network_name, fetcher)
+            fetch_network_with_fallback(network_name, fetcher)
             for network_name, fetcher in self.network_fetchers.items()
         ]
         
