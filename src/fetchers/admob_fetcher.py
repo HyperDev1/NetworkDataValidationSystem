@@ -141,8 +141,19 @@ class AdmobFetcher(NetworkDataFetcher):
                     self.oauth_credentials_path,
                     self.SCOPES
                 )
-                creds = flow.run_local_server(port=8080)
-                logger.info("OAuth authorization completed")
+                # Try different ports if 8080 is in use
+                for port in [8080, 8081, 8082, 8090, 9000]:
+                    try:
+                        creds = flow.run_local_server(port=port)
+                        logger.info(f"OAuth authorization completed on port {port}")
+                        break
+                    except OSError as e:
+                        if "Address already in use" in str(e):
+                            logger.warning(f"Port {port} in use, trying next...")
+                            continue
+                        raise
+                else:
+                    raise RuntimeError("Could not find an available port for OAuth flow")
         
         # Save the credentials for next run
         if creds:

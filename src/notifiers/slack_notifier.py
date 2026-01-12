@@ -3,8 +3,11 @@ Slack notifier for sending alerts.
 """
 import requests
 import json
-from typing import Dict, List, Any
-from datetime import datetime
+from typing import Dict, List, Any, Optional, Callable
+from datetime import datetime, timezone
+
+from src.enums import NetworkName
+from src.utils import parse_delta_percentage
 
 
 class SlackNotifier:
@@ -13,6 +16,47 @@ class SlackNotifier:
     # Ad type and platform order
     AD_TYPE_ORDER = ['banner', 'interstitial', 'rewarded']
     PLATFORM_ORDER = ['android', 'ios']
+    
+    # Legacy icon mapping (fallback for unknown network names)
+    # Prefer using NetworkName.icon property instead
+    NETWORK_ICONS = {
+        'MINTEGRAL': '🟣',
+        'MINTEGRAL_BIDDING': '🟣',
+        'UNITY': '🎮',
+        'UNITY_BIDDING': '🎮',
+        'IRONSOURCE': '🟠',
+        'IRONSOURCE_BIDDING': '🟠',
+        'FACEBOOK': '🔵',
+        'FACEBOOK_NETWORK': '🔵',
+        'FACEBOOK_BIDDING': '🔵',
+        'META': '🔵',
+        'META_AUDIENCE_NETWORK': '🔵',
+        'META_BIDDING': '🔵',
+        'PANGLE': '🎯',
+        'PANGLE_BIDDING': '🎯',
+        'TIKTOK': '🎯',
+        'TIKTOK_BIDDING': '🎯',
+        'GOOGLE': '🔴',
+        'GOOGLE_BIDDING': '🔴',
+        'ADMOB': '🔴',
+        'ADMOB_BIDDING': '🔴',
+        'APPLOVIN': '🟢',
+        'APPLOVIN_BIDDING': '🟢',
+        'LIFTOFF': '🚀',
+        'LIFTOFF_BIDDING': '🚀',
+        'VUNGLE': '🚀',
+        'VUNGLE_BIDDING': '🚀',
+        'DT_EXCHANGE': '💠',
+        'DT_EXCHANGE_BIDDING': '💠',
+        'FYBER': '💠',
+        'FYBER_BIDDING': '💠',
+        'BIDMACHINE': '⚙️',
+        'BIDMACHINE_BIDDING': '⚙️',
+        'INMOBI': '🟡',
+        'INMOBI_BIDDING': '🟡',
+        'MOLOCO': '🔶',
+        'MOLOCO_BIDDING': '🔶',
+    }
     
     def __init__(self, webhook_url: str, channel: str = None):
         """
@@ -24,6 +68,285 @@ class SlackNotifier:
         """
         self.webhook_url = webhook_url
         self.channel = channel
+    
+    def send_comparison_report(
+        self,
+        comparison_rows: List[Dict],
+        totals: Dict,
+        end_date: datetime,
+        network_data: Dict[str, Any] = None,
+        threshold: float = 10.0,
+        min_revenue: float = 25.0,
+        network_key_resolver: Callable[[str], Optional[str]] = None
+    ) -> bool:
+        """
+        Send Network Comparison report to Slack with separate blocks per network.
+        
+        Only shows app/ad_type rows where |rev_delta| > threshold.
+        If all rows are below threshold, sends a summary "all normal" message.
+        
+        Args:
+            comparison_rows: List of comparison row dictionaries
+            totals: Dictionary with total values
+            end_date: Report end date
+            network_data: Optional dictionary with network fetch results
+            threshold: Revenue delta threshold percentage (default 10%)
+            min_revenue: Minimum revenue to check threshold (default $25)
+            network_key_resolver: Optional function to resolve network display name to fetcher key
+            
+        Returns:
+            True if sent successfully, False otherwise
+        """
+        # Filter rows by revenue delta threshold AND minimum revenue
+        total_rows = len(comparison_rows)
+        filtered_rows = []
+        low_revenue_rows = 0
+        
+        for row in comparison_rows:
+            max_rev = row.get('max_revenue', 0)
+            
+            # Skip rows with revenue below minimum threshold
+            if max_rev < min_revenue:
+                low_revenue_rows += 1
+                continue
+            
+            rev_delta_value = parse_delta_percentage(row.get('rev_delta', '0%'))
+            if abs(rev_delta_value) > threshold:
+                filtered_rows.append(row)
+        
+        filtered_count = len(filtered_rows)
+        checked_rows = total_rows - low_revenue_rows
+        
+        # Check for failed networks
+        failed_networks = network_data.get('_failed_networks', []) if network_data else []
+        
+        blocks = []
+        now_utc = datetime.now(timezone.utc)
+        
+        # If no rows exceed threshold, send "all normal" message
+        if not filtered_rows:
+            blocks = self._build_all_normal_blocks(
+                totals, end_date, now_utc, threshold, min_revenue,
+                total_rows, checked_rows, low_revenue_rows, failed_networks
+            )
+        else:
+            blocks = self._build_threshold_exceeded_blocks(
+                comparison_rows, filtered_rows, totals, end_date, now_utc,
+                threshold, min_revenue, total_rows, checked_rows, low_revenue_rows,
+                filtered_count, failed_networks, network_data, network_key_resolver
+            )
+        
+        payload = {"blocks": blocks}
+        if self.channel:
+            payload["channel"] = self.channel
+        
+        return self._send_to_slack(payload)
+    
+    def _build_all_normal_blocks(
+        self, totals: Dict, end_date: datetime, now_utc: datetime,
+        threshold: float, min_revenue: float, total_rows: int,
+        checked_rows: int, low_revenue_rows: int, failed_networks: List[str]
+    ) -> List[Dict]:
+        """Build Slack blocks for 'all normal' message."""
+        blocks = []
+        
+        # Use warning header if there are failed networks
+        if failed_networks:
+            header_text = "⚠️ Network Comparison Report - Eksik Veri"
+        else:
+            header_text = "✅ Network Comparison Report - All Normal"
+        
+        blocks.append({
+            "type": "header",
+            "text": {"type": "plain_text", "text": header_text, "emoji": True}
+        })
+        
+        blocks.append({
+            "type": "context",
+            "elements": [{
+                "type": "mrkdwn",
+                "text": f"📅 *Report Date:* {end_date.strftime('%Y-%m-%d')} | 📅 *Generated:* {now_utc.strftime('%Y-%m-%d %H:%M:%S')} UTC"
+            }]
+        })
+        
+        blocks.append({"type": "divider"})
+        
+        # Calculate overall totals
+        overall_max_rev = totals.get('max_revenue', 0)
+        overall_net_rev = totals.get('network_revenue', 0)
+        overall_rev_delta = ((overall_net_rev - overall_max_rev) / overall_max_rev * 100) if overall_max_rev > 0 else 0
+        
+        # Build status message
+        status_msg = f"✅ *Tüm network'ler normal*\n\n"
+        status_msg += f"Revenue delta threshold: *±{threshold}%*\n"
+        if low_revenue_rows > 0:
+            status_msg += f"Toplam {checked_rows} satır kontrol edildi ({low_revenue_rows} satır <${min_revenue:.0f} revenue), hiçbiri threshold'u aşmadı.\n\n"
+        else:
+            status_msg += f"Toplam {total_rows} satır kontrol edildi, hiçbiri threshold'u aşmadı.\n\n"
+        status_msg += f"💰 *Toplam:* MAX ${overall_max_rev:,.2f} → Network ${overall_net_rev:,.2f} ({overall_rev_delta:+.1f}%)"
+        
+        # Add warning for failed networks
+        if failed_networks:
+            status_msg += f"\n\n⚠️ *Eksik Network'ler:* {', '.join(failed_networks)}"
+            status_msg += f"\n_Bu network'lerden veri çekilemedi. Token/API sorunu olabilir._"
+        
+        blocks.append({
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": status_msg}
+        })
+        
+        # If there are failed networks, add a separate warning block
+        if failed_networks:
+            blocks.append({"type": "divider"})
+            blocks.append({
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"🚨 *UYARI: {len(failed_networks)} network'ten veri alınamadı!*\n" +
+                            f"Eksik: *{', '.join(failed_networks)}*\n" +
+                            f"_Token expire olmuş veya API hatası olabilir. Kontrol edin._"
+                }
+            })
+        
+        return blocks
+    
+    def _build_threshold_exceeded_blocks(
+        self, comparison_rows: List[Dict], filtered_rows: List[Dict],
+        totals: Dict, end_date: datetime, now_utc: datetime,
+        threshold: float, min_revenue: float, total_rows: int,
+        checked_rows: int, low_revenue_rows: int, filtered_count: int,
+        failed_networks: List[str], network_data: Dict[str, Any],
+        network_key_resolver: Callable[[str], Optional[str]]
+    ) -> List[Dict]:
+        """Build Slack blocks for 'threshold exceeded' message."""
+        blocks = []
+        
+        # Group filtered rows by network
+        networks = {}
+        for row in filtered_rows:
+            network_name = row['network']
+            if network_name not in networks:
+                networks[network_name] = []
+            networks[network_name].append(row)
+        
+        # Count affected networks
+        affected_networks = len(networks)
+        total_networks = len(set(r['network'] for r in comparison_rows))
+        
+        # Header with alert
+        blocks.append({
+            "type": "header",
+            "text": {"type": "plain_text", "text": "⚠️ Network Comparison Report - Threshold Aşıldı", "emoji": True}
+        })
+        
+        # Context with summary
+        context_msg = f"📅 *Report Date:* {end_date.strftime('%Y-%m-%d')} | 📅 *Generated:* {now_utc.strftime('%Y-%m-%d %H:%M:%S')} UTC | "
+        if low_revenue_rows > 0:
+            context_msg += f"⚠️ *{filtered_count}/{checked_rows}* satır threshold (±{threshold}%) aştı ({low_revenue_rows} satır <${min_revenue:.0f} revenue) | "
+        else:
+            context_msg += f"⚠️ *{filtered_count}/{total_rows}* satır threshold (±{threshold}%) aştı | "
+        context_msg += f"📡 *{affected_networks}/{total_networks}* network etkilendi"
+        
+        # Add failed networks warning to context
+        if failed_networks:
+            context_msg += f" | 🚨 *Eksik:* {', '.join(failed_networks)}"
+        
+        blocks.append({
+            "type": "context",
+            "elements": [{"type": "mrkdwn", "text": context_msg}]
+        })
+        
+        blocks.append({"type": "divider"})
+        
+        # Create separate block for each network (only affected networks)
+        for network_name, rows in networks.items():
+            # Calculate network totals (from ALL rows, not just filtered)
+            all_network_rows = [r for r in comparison_rows if r['network'] == network_name]
+            network_max_rev = sum(r['max_revenue'] for r in all_network_rows)
+            network_net_rev = sum(r['network_revenue'] for r in all_network_rows)
+            network_max_imps = sum(r['max_impressions'] for r in all_network_rows)
+            network_net_imps = sum(r['network_impressions'] for r in all_network_rows)
+            
+            rev_delta = ((network_net_rev - network_max_rev) / network_max_rev * 100) if network_max_rev > 0 else 0
+            imp_delta = ((network_net_imps - network_max_imps) / network_max_imps * 100) if network_max_imps > 0 else 0
+            
+            # Get network icon - try enum first, then fallback to dict
+            icon = '📡'
+            network_enum = NetworkName.from_api_name(network_name)
+            if network_enum:
+                icon = network_enum.icon
+            else:
+                icon = self.NETWORK_ICONS.get(network_name.upper().replace(' ', '_'), '📡')
+            
+            # Get network date range from network_data
+            network_date_label = ""
+            if network_data and network_key_resolver:
+                network_key = network_key_resolver(network_name)
+                if network_key and network_key in network_data:
+                    net_date_range = network_data[network_key].get('date_range', {})
+                    net_end = net_date_range.get('end', '')
+                    if net_end:
+                        if network_key == 'meta':
+                            network_date_label = f" (📅 {net_end}, T-3)"
+                        else:
+                            network_date_label = f" (📅 {net_end})"
+            
+            # Network section header
+            blocks.append({
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"{icon} *{network_name}*{network_date_label} ({len(rows)}/{len(all_network_rows)} satır threshold aştı)\n💰 MAX: ${network_max_rev:,.2f} → Network: ${network_net_rev:,.2f} ({rev_delta:+.1f}%)\n📈 Imps: {network_max_imps:,} → {network_net_imps:,} ({imp_delta:+.1f}%)"
+                }
+            })
+            
+            # Build table for this network (only filtered rows)
+            table_lines = []
+            table_lines.append(f"{'Application':<28} │ {'Ad Type':<12} │ {'MAX Imps':>10} │ {'Net Imps':>10} │ {'Imp Δ':>8} │ {'MAX Rev':>10} │ {'Net Rev':>10} │ {'Rev Δ':>8} │ {'MAX CPM':>8} │ {'Net CPM':>8} │ {'CPM Δ':>8}")
+            table_lines.append("─" * 155)
+            
+            for row in rows[:20]:  # Limit rows per network for Slack
+                table_lines.append(
+                    f"{row['application']:<28} │ "
+                    f"{row['ad_type']:<12} │ "
+                    f"{row['max_impressions']:>10,} │ "
+                    f"{row['network_impressions']:>10,} │ "
+                    f"{row['imp_delta']:>8} │ "
+                    f"${row['max_revenue']:>9,.2f} │ "
+                    f"${row['network_revenue']:>9,.2f} │ "
+                    f"{row['rev_delta']:>8} │ "
+                    f"${row['max_ecpm']:>7,.2f} │ "
+                    f"${row['network_ecpm']:>7,.2f} │ "
+                    f"{row['cpm_delta']:>8}"
+                )
+            
+            table_text = "\n".join(table_lines)
+            
+            # Use rich_text block with preformatted text for proper alignment
+            blocks.append({
+                "type": "rich_text",
+                "elements": [{
+                    "type": "rich_text_preformatted",
+                    "elements": [{"type": "text", "text": table_text}]
+                }]
+            })
+            
+            blocks.append({"type": "divider"})
+        
+        # Add failed networks warning at the end
+        if failed_networks:
+            blocks.append({
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"🚨 *UYARI: {len(failed_networks)} network'ten veri alınamadı!*\n" +
+                            f"Eksik: *{', '.join(failed_networks)}*\n" +
+                            f"_Token expire olmuş veya API hatası olabilir. Kontrol edin._"
+                }
+            })
+            blocks.append({"type": "divider"})
+        
+        return blocks
     
     def send_report(self, network_data: List[Dict[str, Any]], comparisons: List[Dict[str, Any]] = None) -> bool:
         """
