@@ -10,11 +10,7 @@ from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional, Tuple
 
 from src.config import Config
-from src.fetchers import (
-    ApplovinFetcher, MintegralFetcher, UnityAdsFetcher, AdmobFetcher,
-    MetaFetcher, MolocoFetcher, IronSourceFetcher, InMobiFetcher,
-    BidMachineFetcher, LiftoffFetcher, DTExchangeFetcher, PangleFetcher
-)
+from src.fetchers import ApplovinFetcher, FetcherFactory
 from src.notifiers import SlackNotifier
 from src.exporters import GCSExporter
 from src.enums import NetworkName
@@ -125,156 +121,8 @@ class ValidationService:
                 logger.warning(f"GCS exporter initialization failed: {e}")
     
     def _initialize_network_fetchers(self):
-        """Initialize individual network fetchers."""
-        # Mintegral
-        mintegral_config = self.config.get_mintegral_config()
-        if mintegral_config.get('enabled') and mintegral_config.get('skey'):
-            self.network_fetchers['mintegral'] = MintegralFetcher(
-                skey=mintegral_config['skey'],
-                secret=mintegral_config['secret'],
-                app_id=mintegral_config.get('app_ids')
-            )
-            logger.info("Mintegral fetcher initialized")
-        
-        # Unity Ads
-        unity_config = self.config.get_unity_config()
-        if unity_config.get('enabled') and unity_config.get('api_key'):
-            self.network_fetchers['unity'] = UnityAdsFetcher(
-                api_key=unity_config['api_key'],
-                organization_id=unity_config.get('organization_id'),
-                game_ids=unity_config.get('game_ids')
-            )
-            logger.info("Unity Ads fetcher initialized")
-        
-        # Google AdMob (OAuth 2.0)
-        admob_config = self.config.get_admob_config()
-        if admob_config.get('enabled') and admob_config.get('oauth_credentials_path'):
-            try:
-                self.network_fetchers['admob'] = AdmobFetcher(
-                    publisher_id=admob_config['publisher_id'],
-                    app_ids=admob_config.get('app_ids'),
-                    oauth_credentials_path=admob_config['oauth_credentials_path'],
-                    token_path=admob_config.get('token_path', 'credentials/admob_token.json')
-                )
-                logger.info("AdMob fetcher initialized")
-            except ImportError as e:
-                logger.warning(f"AdMob fetcher skipped: {e}")
-            except FileNotFoundError as e:
-                logger.warning(f"AdMob fetcher skipped: {e}")
-            except Exception as e:
-                logger.warning(f"AdMob fetcher skipped: {e}")
-        
-        # Meta Audience Network
-        meta_config = self.config.get_meta_config()
-        if meta_config.get('enabled') and meta_config.get('access_token'):
-            try:
-                self.network_fetchers['meta'] = MetaFetcher(
-                    access_token=meta_config['access_token'],
-                    business_id=meta_config['business_id']
-                )
-                logger.info("Meta Audience Network fetcher initialized")
-            except Exception as e:
-                logger.warning(f"Meta fetcher skipped: {e}")
-        
-        # Moloco Publisher
-        moloco_config = self.config.get_moloco_config()
-        if moloco_config.get('enabled') and moloco_config.get('publisher_id'):
-            try:
-                self.network_fetchers['moloco'] = MolocoFetcher(
-                    email=moloco_config['email'],
-                    password=moloco_config['password'],
-                    platform_id=moloco_config['platform_id'],
-                    publisher_id=moloco_config['publisher_id'],
-                    app_bundle_ids=moloco_config.get('app_bundle_ids'),
-                    time_zone=moloco_config.get('time_zone', 'UTC'),
-                    ad_unit_mapping=moloco_config.get('ad_unit_mapping', {})
-                )
-                logger.info("Moloco Publisher fetcher initialized")
-            except Exception as e:
-                logger.warning(f"Moloco fetcher skipped: {e}")
-        
-        # IronSource
-        ironsource_config = self.config.get_ironsource_config()
-        if ironsource_config.get('enabled') and ironsource_config.get('secret_key'):
-            try:
-                self.network_fetchers['ironsource'] = IronSourceFetcher(
-                    username=ironsource_config['username'],
-                    secret_key=ironsource_config['secret_key'],
-                    android_app_keys=ironsource_config.get('android_app_keys'),
-                    ios_app_keys=ironsource_config.get('ios_app_keys'),
-                )
-                logger.info("IronSource fetcher initialized")
-            except Exception as e:
-                logger.warning(f"IronSource fetcher skipped: {e}")
-        
-        # InMobi
-        inmobi_config = self.config.get_inmobi_config()
-        if inmobi_config.get('enabled') and inmobi_config.get('secret_key'):
-            try:
-                self.network_fetchers['inmobi'] = InMobiFetcher(
-                    account_id=inmobi_config['account_id'],
-                    secret_key=inmobi_config['secret_key'],
-                    username=inmobi_config.get('username'),
-                    app_ids=inmobi_config.get('app_ids')
-                )
-                logger.info("InMobi fetcher initialized")
-            except Exception as e:
-                logger.warning(f"InMobi fetcher skipped: {e}")
-        
-        # BidMachine
-        bidmachine_config = self.config.get_bidmachine_config()
-        if bidmachine_config.get('enabled') and bidmachine_config.get('username'):
-            try:
-                self.network_fetchers['bidmachine'] = BidMachineFetcher(
-                    username=bidmachine_config['username'],
-                    password=bidmachine_config['password'],
-                    app_bundle_ids=bidmachine_config.get('app_bundle_ids'),
-                )
-                logger.info("BidMachine fetcher initialized")
-            except Exception as e:
-                logger.warning(f"BidMachine fetcher skipped: {e}")
-        
-        # Liftoff (Vungle)
-        liftoff_config = self.config.get_liftoff_config()
-        if liftoff_config.get('enabled') and liftoff_config.get('api_key'):
-            try:
-                self.network_fetchers['liftoff'] = LiftoffFetcher(
-                    api_key=liftoff_config['api_key'],
-                    application_ids=liftoff_config.get('application_ids'),
-                )
-                logger.info("Liftoff fetcher initialized")
-            except Exception as e:
-                logger.warning(f"Liftoff fetcher skipped: {e}")
-        
-        # DT Exchange (Digital Turbine / Fyber)
-        dt_exchange_config = self.config.get_dt_exchange_config()
-        if dt_exchange_config.get('enabled') and dt_exchange_config.get('client_id'):
-            try:
-                self.network_fetchers['dt_exchange'] = DTExchangeFetcher(
-                    client_id=dt_exchange_config['client_id'],
-                    client_secret=dt_exchange_config['client_secret'],
-                    source=dt_exchange_config.get('source', 'mediation'),
-                    app_ids=dt_exchange_config.get('app_ids'),
-                )
-                logger.info("DT Exchange fetcher initialized")
-            except Exception as e:
-                logger.warning(f"DT Exchange fetcher skipped: {e}")
-        
-        # Pangle
-        pangle_config = self.config.get_pangle_config()
-        if pangle_config.get('enabled') and pangle_config.get('secure_key'):
-            try:
-                self.network_fetchers['pangle'] = PangleFetcher(
-                    user_id=pangle_config['user_id'],
-                    role_id=pangle_config['role_id'],
-                    secure_key=pangle_config['secure_key'],
-                    time_zone=pangle_config.get('time_zone', 0),
-                    currency=pangle_config.get('currency', 'usd'),
-                    package_names=pangle_config.get('package_names'),
-                )
-                logger.info("Pangle fetcher initialized")
-            except Exception as e:
-                logger.warning(f"Pangle fetcher skipped: {e}")
+        """Initialize individual network fetchers using the FetcherFactory."""
+        self.network_fetchers = FetcherFactory.create_all_fetchers(self.config)
     
     async def run_validation(self, start_date=None, end_date=None) -> Dict[str, Any]:
         """
@@ -393,7 +241,17 @@ class ValidationService:
             # Send to Slack
             if self.notifier:
                 print("\n📤 Sending report to Slack...")
-                success = self._send_slack_report(comparison_rows, totals, start_date, end_date, network_data)
+                threshold = self.config.get_slack_revenue_delta_threshold()
+                min_revenue = self.config.get_slack_min_revenue_for_alerts()
+                success = self.notifier.send_comparison_report(
+                    comparison_rows=comparison_rows,
+                    totals=totals,
+                    end_date=end_date,
+                    network_data=network_data,
+                    threshold=threshold,
+                    min_revenue=min_revenue,
+                    network_key_resolver=self._get_network_key
+                )
                 if success:
                     logger.info("Report sent to Slack successfully")
                     print("   ✅ Report sent successfully")
@@ -512,6 +370,7 @@ class ValidationService:
         
         # Process results
         network_data = {}
+        failed_networks = []  # Track failed networks for alerting
         for result in results:
             if isinstance(result, Exception):
                 logger.error(f"Unexpected error in parallel fetch: {result}")
@@ -519,6 +378,14 @@ class ValidationService:
             network_name, data = result
             if data is not None:
                 network_data[network_name] = data
+            else:
+                failed_networks.append(network_name)
+        
+        # Store failed networks in result for Slack notification
+        if failed_networks:
+            network_data['_failed_networks'] = failed_networks
+            logger.warning(f"Failed to fetch data from: {', '.join(failed_networks)}")
+            print(f"   ⚠️ Failed networks: {', '.join(failed_networks)}")
         
         # Also close AppLovin fetcher session
         if self.applovin_fetcher and hasattr(self.applovin_fetcher, 'close'):
@@ -528,7 +395,8 @@ class ValidationService:
                 pass
         
         elapsed = time.time() - start_time
-        logger.info(f"Parallel fetch completed in {elapsed:.2f}s for {len(network_data)}/{len(self.network_fetchers)} networks")
+        successful_count = len([k for k in network_data.keys() if not k.startswith('_')])
+        logger.info(f"Parallel fetch completed in {elapsed:.2f}s for {successful_count}/{len(self.network_fetchers)} networks")
         print(f"   ⏱️ Parallel fetch completed in {elapsed:.2f}s")
         
         return network_data
@@ -675,254 +543,7 @@ class ValidationService:
         
         return "\n".join(lines)
     
-    def _parse_delta_percentage(self, delta_str: str) -> float:
-        """
-        Parse delta percentage string to float.
-        
-        Args:
-            delta_str: Delta string like "+5.2%", "-3.1%", "+∞%", "0.0%"
-            
-        Returns:
-            Float value of delta (e.g., 5.2, -3.1, inf)
-        """
-        if not delta_str:
-            return 0.0
-        
-        # Remove % sign and whitespace
-        delta_str = delta_str.strip().rstrip('%')
-        
-        # Handle infinity case
-        if '∞' in delta_str or 'inf' in delta_str.lower():
-            return float('inf') if '+' in delta_str or delta_str.startswith('∞') else float('-inf')
-        
-        try:
-            return float(delta_str)
-        except ValueError:
-            return 0.0
-    
-    def _send_slack_report(self, comparison_rows: List[Dict], totals: Dict, start_date: datetime, end_date: datetime, network_data: Dict[str, Any] = None) -> bool:
-        """Send Network Comparison report to Slack with separate blocks per network.
-        
-        Only shows app/ad_type rows where |rev_delta| > threshold (default 5%).
-        If all rows are below threshold, sends a summary "all normal" message.
-        """
-        from datetime import timezone
-        
-        # Get revenue delta threshold and minimum revenue from config
-        threshold = self.config.get_slack_revenue_delta_threshold()
-        min_revenue = self.config.get_slack_min_revenue_for_alerts()
-        
-        # Filter rows by revenue delta threshold AND minimum revenue (app/ad_type level)
-        total_rows = len(comparison_rows)
-        filtered_rows = []
-        low_revenue_rows = 0
-        for row in comparison_rows:
-            max_rev = row.get('max_revenue', 0)
-            
-            # Skip rows with revenue below minimum threshold
-            if max_rev < min_revenue:
-                low_revenue_rows += 1
-                continue
-            
-            rev_delta_value = self._parse_delta_percentage(row.get('rev_delta', '0%'))
-            if abs(rev_delta_value) > threshold:
-                filtered_rows.append(row)
-        
-        filtered_count = len(filtered_rows)
-        checked_rows = total_rows - low_revenue_rows
-        
-        blocks = []
-        now_utc = datetime.now(timezone.utc)
-        
-        # Network icons mapping
-        network_icons = {
-            'MINTEGRAL': '🟣',
-            'MINTEGRAL_BIDDING': '🟣',
-            'UNITY': '🎮',
-            'UNITY_BIDDING': '🎮',
-            'IRONSOURCE': '🟠',
-            'IRONSOURCE_BIDDING': '🟠',
-            'FACEBOOK': '🔵',
-            'FACEBOOK_NETWORK': '🔵',
-            'FACEBOOK_BIDDING': '🔵',
-            'META': '🔵',
-            'META_AUDIENCE_NETWORK': '🔵',
-            'META_BIDDING': '🔵',
-            'PANGLE': '🎯',
-            'PANGLE_BIDDING': '🎯',
-            'TIKTOK': '🎯',
-            'TIKTOK_BIDDING': '🎯',
-        }
-        
-        # If no rows exceed threshold, send "all normal" message
-        if not filtered_rows:
-            blocks.append({
-                "type": "header",
-                "text": {"type": "plain_text", "text": "✅ Network Comparison Report - All Normal", "emoji": True}
-            })
-            
-            blocks.append({
-                "type": "context",
-                "elements": [{
-                    "type": "mrkdwn",
-                    "text": f"� *Report Date:* {end_date.strftime('%Y-%m-%d')} | �📅 *Generated:* {now_utc.strftime('%Y-%m-%d %H:%M:%S')} UTC"
-                }]
-            })
-            
-            blocks.append({"type": "divider"})
-            
-            # Calculate overall totals
-            overall_max_rev = totals.get('max_revenue', 0)
-            overall_net_rev = totals.get('network_revenue', 0)
-            overall_rev_delta = ((overall_net_rev - overall_max_rev) / overall_max_rev * 100) if overall_max_rev > 0 else 0
-            
-            # Build status message
-            status_msg = f"✅ *Tüm network'ler normal*\n\n"
-            status_msg += f"Revenue delta threshold: *±{threshold}%*\n"
-            if low_revenue_rows > 0:
-                status_msg += f"Toplam {checked_rows} satır kontrol edildi ({low_revenue_rows} satır <${min_revenue:.0f} revenue), hiçbiri threshold'u aşmadı.\n\n"
-            else:
-                status_msg += f"Toplam {total_rows} satır kontrol edildi, hiçbiri threshold'u aşmadı.\n\n"
-            status_msg += f"💰 *Toplam:* MAX ${overall_max_rev:,.2f} → Network ${overall_net_rev:,.2f} ({overall_rev_delta:+.1f}%)"
-            
-            blocks.append({
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": status_msg
-                }
-            })
-            
-            payload = {"blocks": blocks}
-            if self.notifier.channel:
-                payload["channel"] = self.notifier.channel
-            
-            return self.notifier._send_to_slack(payload)
-        
-        # Group filtered rows by network
-        networks = {}
-        for row in filtered_rows:
-            network_name = row['network']
-            if network_name not in networks:
-                networks[network_name] = []
-            networks[network_name].append(row)
-        
-        # Count affected networks
-        affected_networks = len(networks)
-        total_networks = len(set(r['network'] for r in comparison_rows))
-        
-        # Header with alert
-        blocks.append({
-            "type": "header",
-            "text": {"type": "plain_text", "text": "⚠️ Network Comparison Report - Threshold Aşıldı", "emoji": True}
-        })
-        
-        # Context with summary
-        context_msg = f"� *Report Date:* {end_date.strftime('%Y-%m-%d')} | �📅 *Generated:* {now_utc.strftime('%Y-%m-%d %H:%M:%S')} UTC | "
-        if low_revenue_rows > 0:
-            context_msg += f"⚠️ *{filtered_count}/{checked_rows}* satır threshold (±{threshold}%) aştı ({low_revenue_rows} satır <${min_revenue:.0f} revenue) | "
-        else:
-            context_msg += f"⚠️ *{filtered_count}/{total_rows}* satır threshold (±{threshold}%) aştı | "
-        context_msg += f"📡 *{affected_networks}/{total_networks}* network etkilendi"
-        
-        blocks.append({
-            "type": "context",
-            "elements": [{
-                "type": "mrkdwn",
-                "text": context_msg
-            }]
-        })
-        
-        blocks.append({"type": "divider"})
-        
-        # Create separate block for each network (only affected networks)
-        for network_name, rows in networks.items():
-            # Calculate network totals (from ALL rows, not just filtered)
-            all_network_rows = [r for r in comparison_rows if r['network'] == network_name]
-            network_max_rev = sum(r['max_revenue'] for r in all_network_rows)
-            network_net_rev = sum(r['network_revenue'] for r in all_network_rows)
-            network_max_imps = sum(r['max_impressions'] for r in all_network_rows)
-            network_net_imps = sum(r['network_impressions'] for r in all_network_rows)
-            
-            rev_delta = ((network_net_rev - network_max_rev) / network_max_rev * 100) if network_max_rev > 0 else 0
-            imp_delta = ((network_net_imps - network_max_imps) / network_max_imps * 100) if network_max_imps > 0 else 0
-            
-            # Get network icon
-            icon = network_icons.get(network_name.upper(), '📡')
-            
-            # Get network date range from network_data
-            network_date_label = ""
-            if network_data:
-                # Map network display name to fetcher key using enum
-                network_key = self._get_network_key(network_name)
-                if network_key and network_key in network_data:
-                    net_date_range = network_data[network_key].get('date_range', {})
-                    net_end = net_date_range.get('end', '')
-                    if net_end:
-                        # Add T-3 indicator for Meta to make delay clear
-                        if network_key == 'meta':
-                            network_date_label = f" (📅 {net_end}, T-3)"
-                        else:
-                            network_date_label = f" (📅 {net_end})"
-            
-            # Network section header with threshold info and date label
-            blocks.append({
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": f"{icon} *{network_name}*{network_date_label} ({len(rows)}/{len(all_network_rows)} satır threshold aştı)\n💰 MAX: ${network_max_rev:,.2f} → Network: ${network_net_rev:,.2f} ({rev_delta:+.1f}%)\n📈 Imps: {network_max_imps:,} → {network_net_imps:,} ({imp_delta:+.1f}%)"
-                }
-            })
-            
-            # Build table for this network (only filtered rows)
-            table_lines = []
-            table_lines.append(f"{'Application':<28} │ {'Ad Type':<12} │ {'MAX Imps':>10} │ {'Net Imps':>10} │ {'Imp Δ':>8} │ {'MAX Rev':>10} │ {'Net Rev':>10} │ {'Rev Δ':>8} │ {'MAX CPM':>8} │ {'Net CPM':>8} │ {'CPM Δ':>8}")
-            table_lines.append("─" * 155)
-            
-            for row in rows[:20]:  # Limit rows per network for Slack
-                table_lines.append(
-                    f"{row['application']:<28} │ "
-                    f"{row['ad_type']:<12} │ "
-                    f"{row['max_impressions']:>10,} │ "
-                    f"{row['network_impressions']:>10,} │ "
-                    f"{row['imp_delta']:>8} │ "
-                    f"${row['max_revenue']:>9,.2f} │ "
-                    f"${row['network_revenue']:>9,.2f} │ "
-                    f"{row['rev_delta']:>8} │ "
-                    f"${row['max_ecpm']:>7,.2f} │ "
-                    f"${row['network_ecpm']:>7,.2f} │ "
-                    f"{row['cpm_delta']:>8}"
-                )
-            
-            table_text = "\n".join(table_lines)
-            
-            # Use rich_text block with preformatted text for proper alignment
-            blocks.append({
-                "type": "rich_text",
-                "elements": [
-                    {
-                        "type": "rich_text_preformatted",
-                        "elements": [
-                            {
-                                "type": "text",
-                                "text": table_text
-                            }
-                        ]
-                    }
-                ]
-            })
-            
-            # Add divider between networks
-            blocks.append({"type": "divider"})
-        
-        payload = {"blocks": blocks}
-        if self.notifier.channel:
-            payload["channel"] = self.notifier.channel
-        
-        return self.notifier._send_to_slack(payload)
-    
-    def test_slack_integration(self) -> bool:
-        """Test Slack integration."""
+
         if not self.notifier:
             print("Slack notifier not configured")
             return False

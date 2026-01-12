@@ -14,6 +14,7 @@ from .bidmachine_fetcher import BidMachineFetcher
 from .liftoff_fetcher import LiftoffFetcher
 from .dt_exchange_fetcher import DTExchangeFetcher
 from .pangle_fetcher import PangleFetcher
+from .factory import FetcherFactory, FETCHER_REGISTRY
 
 __all__ = [
     'NetworkDataFetcher',
@@ -29,4 +30,6 @@ __all__ = [
     'LiftoffFetcher',
     'DTExchangeFetcher',
     'PangleFetcher',
+    'FetcherFactory',
+    'FETCHER_REGISTRY',
 ]

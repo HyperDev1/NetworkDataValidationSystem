@@ -145,6 +145,47 @@ class NetworkName(str, Enum):
     CHARTBOOST = "chartboost"
     
     @property
+    def icon(self) -> str:
+        """Return Slack emoji icon for network."""
+        icon_map = {
+            NetworkName.MINTEGRAL: ":mintegral:",
+            NetworkName.UNITY: ":unity:",
+            NetworkName.ADMOB: ":google:",
+            NetworkName.IRONSOURCE: ":ironsource:",
+            NetworkName.META: ":meta:",
+            NetworkName.MOLOCO: ":moloco:",
+            NetworkName.INMOBI: ":inmobi:",
+            NetworkName.BIDMACHINE: ":bidmachine:",
+            NetworkName.LIFTOFF: ":liftoff:",
+            NetworkName.DT_EXCHANGE: ":dt_exchange:",
+            NetworkName.PANGLE: ":pangle:",
+            NetworkName.APPLOVIN: ":applovin:",
+            NetworkName.APPLOVIN_EXCHANGE: ":applovin:",
+            NetworkName.CHARTBOOST: ":chartboost:",
+        }
+        return icon_map.get(self, ":chart_with_upwards_trend:")
+    
+    @property
+    def data_delay_days(self) -> int:
+        """Return typical data availability delay in days for this network."""
+        delay_map = {
+            NetworkName.META: 2,  # Meta has 48h delay
+            NetworkName.PANGLE: 2,  # Pangle has delay
+        }
+        return delay_map.get(self, 1)  # Default 1 day delay
+    
+    @property
+    def supports_fallback(self) -> bool:
+        """Return whether network supports fallback to previous day data."""
+        # Networks known to have occasional API issues
+        fallback_networks = {
+            NetworkName.BIDMACHINE,
+            NetworkName.LIFTOFF,
+            NetworkName.META,
+        }
+        return self in fallback_networks
+    
+    @property
     def display_name(self) -> str:
         """Return human-readable display name for Slack/reports."""
         display_map = {
