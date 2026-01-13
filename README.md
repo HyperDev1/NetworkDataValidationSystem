@@ -4,20 +4,25 @@ A system for validating and comparing revenue and impression data across multipl
 
 ## 🎯 Features
 
-- **Multi-Network Support**: Fetch data from Adjust, Applovin Max, and easily extensible to other networks
-- **Automated Comparison**: Compare revenue and impression metrics across networks
+- **Multi-Network Support**: Fetch data from AppLovin MAX, Mintegral, Unity, AdMob, Meta, Moloco, IronSource, InMobi, BidMachine, Liftoff, DT Exchange, Pangle, and easily extensible to other networks
+- **Async/Parallel Fetching**: Uses `asyncio` and `aiohttp` to fetch all networks in parallel (~5-8s vs ~30-60s sequential)
+- **Automated Comparison**: Compare revenue and impression metrics between MAX and individual networks
+- **Type-Safe Enums**: Platform, AdType, and NetworkName enums for consistent data handling
+- **Token Caching**: File-based token cache with TTL for session-based APIs
 - **Configurable Thresholds**: Set custom threshold percentages for acceptable differences
 - **Slack Notifications**: Automatic alerts when discrepancies exceed thresholds
+- **GCS Export**: Export comparison data to Google Cloud Storage for BigQuery/Looker analytics
 - **Scheduled Checks**: Periodic validation with configurable intervals
 - **Easy Configuration**: YAML-based configuration for all settings
 
 ## 📋 Requirements
 
-- Python 3.7+
+- Python 3.8+ (for async/await support)
 - Valid API credentials for:
-  - Adjust API
-  - Applovin Max API
-- Slack Webhook URL for notifications
+  - AppLovin MAX API (required - baseline data)
+  - Individual network APIs (Mintegral, Unity, AdMob, Meta, etc.)
+- Slack Webhook URL for notifications (optional)
+- GCP Service Account for GCS export (optional)
 
 ## 🚀 Installation
 
@@ -110,16 +115,22 @@ python main.py --help
 
 ### Network Configuration
 
-- **Adjust**: Requires `api_token` and `app_token`
-- **Applovin Max**: Requires `api_key` and `package_name`
+- **AppLovin MAX**: Requires `api_key` and `applications` list (baseline data source)
 - **Mintegral**: Requires `skey`, `secret`, and optional `app_ids`
 - **Unity Ads**: Requires `api_key`, `organization_id`, and optional `game_ids`
-- **Google AdMob**: Requires `service_account_json_path` and `publisher_id` (see AdMob Setup below)
+- **Google AdMob**: Requires `oauth_credentials_path` and `publisher_id` (see AdMob Setup below)
 - **Meta Audience Network**: Requires `access_token` and `business_id` (see Meta Setup below)
+- **Moloco**: Requires `email`, `password`, `platform_id`, `publisher_id`
+- **IronSource**: Requires `username`, `secret_key`, and optional `android_app_keys`/`ios_app_keys`
+- **InMobi**: Requires `account_id`, `secret_key`, and optional `username`, `app_ids`
+- **BidMachine**: Requires `email`, `password`, and optional `app_bundle_ids`
+- **Liftoff (Vungle)**: Requires `api_key` and optional `application_ids`
+- **DT Exchange (Fyber)**: Requires `publisher_id`, `consumer_key`, `consumer_secret`
+- **Pangle**: Requires `user_id`, `role_id`, `secure_key`
 
 ### Meta Audience Network Setup
 
-Meta Audience Network has a **3-day reporting delay** for stable daily data. This is documented behavior from Meta's API.
+Meta Audience Network has a **1-day reporting delay** for daily data. This delay is configurable via `DATA_DELAY_DAYS` in the fetcher.
 
 1. **Get System User Access Token:**
    - Go to [Meta Business Manager](https://business.facebook.com)
@@ -136,11 +147,10 @@ Meta Audience Network has a **3-day reporting delay** for stable daily data. Thi
        business_id: "YOUR_BUSINESS_ID"
    ```
 
-3. **Understanding T-3 Delay:**
-   - Meta daily data requires ~3 days to stabilize
-   - When other networks report T-1 (yesterday), Meta reports T-3 (3 days ago)
-   - Slack reports show date labels to clarify: `Meta Bidding (📅 2026-01-08, T-3)`
-   - MAX comparison uses the same T-3 date for accurate comparison
+3. **Understanding Data Delay:**
+   - Meta daily data requires ~1 day to stabilize (T-1)
+   - Slack reports show date labels to clarify: `Meta Bidding (📅 2026-01-10, T-1)`
+   - MAX comparison uses the same delayed date for accurate comparison
 
 ### AdMob Setup
 
@@ -325,17 +335,35 @@ python main.py
 ### Project Structure
 ```
 NetworkDataValidationSystem/
-├── main.py                 # Main entry point
+├── main.py                 # Main entry point (asyncio.run)
 ├── config.yaml            # Configuration file (create from example)
 ├── config.yaml.example    # Example configuration
 ├── requirements.txt       # Python dependencies
 ├── src/
 │   ├── config.py         # Configuration loader
-│   ├── validation_service.py  # Main validation orchestrator
-│   ├── fetchers/         # Network data fetchers
-│   │   ├── base_fetcher.py
-│   │   ├── adjust_fetcher.py
-│   │   └── applovin_fetcher.py
+│   ├── enums.py          # Platform, AdType, NetworkName enums
+│   ├── validation_service.py  # Main async validation orchestrator
+│   ├── fetchers/         # Async network data fetchers
+│   │   ├── base_fetcher.py  # Abstract base with aiohttp & helpers
+│   │   ├── applovin_fetcher.py
+│   │   ├── mintegral_fetcher.py
+│   │   ├── unity_fetcher.py
+│   │   ├── admob_fetcher.py
+│   │   ├── meta_fetcher.py
+│   │   ├── moloco_fetcher.py
+│   │   ├── ironsource_fetcher.py
+│   │   ├── inmobi_fetcher.py
+│   │   ├── bidmachine_fetcher.py
+│   │   ├── liftoff_fetcher.py
+│   │   ├── dt_exchange_fetcher.py
+│   │   ├── pangle_fetcher.py
+│   │   └── __init__.py
+│   ├── utils/            # Utility modules
+│   │   ├── token_cache.py  # File-based token caching
+│   │   └── __init__.py
+│   ├── exporters/        # Data export modules
+│   │   ├── gcs_exporter.py
+│   │   └── __init__.py
 │   ├── validators/       # Data validation logic
 │   │   └── data_validator.py
 │   └── notifiers/        # Notification systems

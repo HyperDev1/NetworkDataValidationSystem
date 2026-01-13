@@ -1,13 +1,17 @@
 ﻿"""
 Google AdMob data fetcher implementation.
+Async version - uses Google API client (synchronous) wrapped for async interface.
 Uses AdMob API v1 for fetching monetization data with OAuth 2.0.
 API Docs: https://developers.google.com/admob/api/v1/reference/rest
 """
+import asyncio
+import logging
 import os
-import json
 from datetime import datetime
-from typing import Dict, Any, List, Optional
-from .base_fetcher import NetworkDataFetcher
+from typing import Dict, Any, Optional
+
+from .base_fetcher import NetworkDataFetcher, FetchResult
+from ..enums import Platform, AdType, NetworkName
 
 try:
     from google.oauth2.credentials import Credentials
@@ -21,6 +25,9 @@ except ImportError:
     Credentials = None  # Type hint placeholder
 
 
+logger = logging.getLogger(__name__)
+
+
 class AdmobFetcher(NetworkDataFetcher):
     """
     Fetcher for Google AdMob monetization data using OAuth 2.0.
@@ -28,25 +35,27 @@ class AdmobFetcher(NetworkDataFetcher):
     OAuth 2.0 with Production mode:
     - Requires browser for initial authorization only
     - Token is cached and auto-refreshed (no expiration in Production mode)
+    
+    Note: Uses synchronous Google API client internally, wrapped for async interface.
     """
     
     # AdMob API scopes
     SCOPES = ['https://www.googleapis.com/auth/admob.readonly']
     
-    # Ad format mapping - AdMob format to our standard categories
+    # Ad format mapping - AdMob format to our standard enums
     AD_FORMAT_MAP = {
-        'BANNER': 'banner',
-        'INTERSTITIAL': 'interstitial',
-        'REWARDED': 'rewarded',
-        'REWARDED_INTERSTITIAL': 'rewarded',
-        'APP_OPEN': 'interstitial',
-        'NATIVE': 'banner',
+        'BANNER': AdType.BANNER,
+        'INTERSTITIAL': AdType.INTERSTITIAL,
+        'REWARDED': AdType.REWARDED,
+        'REWARDED_INTERSTITIAL': AdType.REWARDED,
+        'APP_OPEN': AdType.INTERSTITIAL,
+        'NATIVE': AdType.BANNER,
     }
     
-    # Platform mapping
+    # Platform mapping to enums
     PLATFORM_MAP = {
-        'ANDROID': 'android',
-        'IOS': 'ios',
+        'ANDROID': Platform.ANDROID,
+        'IOS': Platform.IOS,
     }
     
     def __init__(
@@ -67,6 +76,8 @@ class AdmobFetcher(NetworkDataFetcher):
             oauth_credentials_path: Path to OAuth 2.0 client credentials JSON file
             token_path: Path to store/load OAuth token
         """
+        super().__init__()
+        
         if not GOOGLE_API_AVAILABLE:
             raise ImportError(
                 "Google API libraries not installed. "
@@ -101,37 +112,48 @@ class AdmobFetcher(NetworkDataFetcher):
         if os.path.exists(self.token_path):
             try:
                 creds = Credentials.from_authorized_user_file(self.token_path, self.SCOPES)
-                print(f"      [INFO] Loaded existing OAuth token from {self.token_path}")
+                logger.debug(f"Loaded existing OAuth token from {self.token_path}")
             except Exception as e:
-                print(f"      [WARN] Failed to load token: {e}")
+                logger.warning(f"Failed to load token: {e}")
                 creds = None
         
         # If no valid credentials, need to authenticate
         if not creds or not creds.valid:
             if creds and creds.expired and creds.refresh_token:
                 try:
-                    print("      [INFO] Refreshing expired OAuth token...")
+                    logger.info("Refreshing expired OAuth token...")
                     creds.refresh(Request())
-                    print("      [OK] Token refreshed successfully")
+                    logger.info("Token refreshed successfully")
                 except Exception as e:
-                    print(f"      [WARN] Token refresh failed: {e}")
+                    logger.warning(f"Token refresh failed: {e}")
                     creds = None
             
             if not creds:
                 # Need to do OAuth flow
                 if not os.path.exists(self.oauth_credentials_path):
-                    print(f"      [WARN] OAuth credentials file not found: {self.oauth_credentials_path}")
+                    logger.warning(f"OAuth credentials file not found: {self.oauth_credentials_path}")
                     return None
                 
-                print("      [INFO] Starting OAuth authorization flow...")
-                print("      [INFO] A browser window will open for authorization.")
+                logger.info("Starting OAuth authorization flow...")
+                logger.info("A browser window will open for authorization.")
                 
                 flow = InstalledAppFlow.from_client_secrets_file(
                     self.oauth_credentials_path,
                     self.SCOPES
                 )
-                creds = flow.run_local_server(port=8080)
-                print("      [OK] OAuth authorization completed")
+                # Try different ports if 8080 is in use
+                for port in [8080, 8081, 8082, 8090, 9000]:
+                    try:
+                        creds = flow.run_local_server(port=port)
+                        logger.info(f"OAuth authorization completed on port {port}")
+                        break
+                    except OSError as e:
+                        if "Address already in use" in str(e):
+                            logger.warning(f"Port {port} in use, trying next...")
+                            continue
+                        raise
+                else:
+                    raise RuntimeError("Could not find an available port for OAuth flow")
         
         # Save the credentials for next run
         if creds:
@@ -149,78 +171,25 @@ class AdmobFetcher(NetworkDataFetcher):
             
             with open(self.token_path, 'w') as token_file:
                 token_file.write(creds.to_json())
-            print(f"      [OK] OAuth token saved to {self.token_path}")
+            logger.debug(f"OAuth token saved to {self.token_path}")
         except Exception as e:
-            print(f"      [WARN] Failed to save token: {e}")
+            logger.warning(f"Failed to save token: {e}")
     
-    def _normalize_platform(self, platform: str) -> str:
-        """Normalize platform name to standard format."""
+    def _normalize_platform(self, platform: str) -> Platform:
+        """Normalize platform name to Platform enum."""
         if not platform:
-            return 'android'
+            return Platform.ANDROID
         
         platform_upper = platform.upper().strip()
-        return self.PLATFORM_MAP.get(platform_upper, 'android')
+        return self.PLATFORM_MAP.get(platform_upper, Platform.ANDROID)
     
-    def _normalize_ad_format(self, ad_format: str) -> str:
-        """Normalize ad format to standard category."""
+    def _normalize_ad_format(self, ad_format: str) -> AdType:
+        """Normalize ad format to AdType enum."""
         if not ad_format:
-            return 'interstitial'
+            return AdType.INTERSTITIAL
         
         ad_format_upper = ad_format.upper().strip()
-        return self.AD_FORMAT_MAP.get(ad_format_upper, 'interstitial')
-    
-    def _init_ad_data(self) -> Dict[str, Dict[str, Any]]:
-        """Initialize empty ad data structure."""
-        return {
-            'banner': {'revenue': 0.0, 'impressions': 0, 'ecpm': 0.0},
-            'interstitial': {'revenue': 0.0, 'impressions': 0, 'ecpm': 0.0},
-            'rewarded': {'revenue': 0.0, 'impressions': 0, 'ecpm': 0.0}
-        }
-    
-    def _init_platform_data(self) -> Dict[str, Any]:
-        """Initialize empty platform data structure."""
-        return {
-            'android': {
-                'ad_data': self._init_ad_data(),
-                'revenue': 0.0,
-                'impressions': 0,
-                'ecpm': 0.0
-            },
-            'ios': {
-                'ad_data': self._init_ad_data(),
-                'revenue': 0.0,
-                'impressions': 0,
-                'ecpm': 0.0
-            }
-        }
-    
-    def _calculate_ecpm(self, revenue: float, impressions: int) -> float:
-        """Calculate eCPM from revenue and impressions."""
-        if impressions <= 0:
-            return 0.0
-        return round((revenue / impressions) * 1000, 2)
-    
-    def _finalize_ecpm(self, data: Dict[str, Any]):
-        """Calculate and update eCPM values in data structure."""
-        for platform_key in ['android', 'ios']:
-            platform = data['platform_data'][platform_key]
-            
-            # Calculate platform-level eCPM
-            platform['ecpm'] = self._calculate_ecpm(
-                platform['revenue'],
-                platform['impressions']
-            )
-            
-            # Calculate ad-type level eCPM
-            for ad_type in ['banner', 'interstitial', 'rewarded']:
-                ad_data = platform['ad_data'][ad_type]
-                ad_data['ecpm'] = self._calculate_ecpm(
-                    ad_data['revenue'],
-                    ad_data['impressions']
-                )
-        
-        # Calculate total eCPM
-        data['ecpm'] = self._calculate_ecpm(data['revenue'], data['impressions'])
+        return self.AD_FORMAT_MAP.get(ad_format_upper, AdType.INTERSTITIAL)
     
     def _get_account_name(self) -> str:
         """Get the AdMob account name. Lists accounts and finds matching one."""
@@ -232,7 +201,7 @@ class AdmobFetcher(NetworkDataFetcher):
             accounts_response = self.service.accounts().list().execute()
             accounts = accounts_response.get('account', [])
             
-            print(f"      [INFO] Found {len(accounts)} AdMob account(s)")
+            logger.debug(f"Found {len(accounts)} AdMob account(s)")
             
             if not accounts:
                 raise Exception(
@@ -245,52 +214,47 @@ class AdmobFetcher(NetworkDataFetcher):
                 account_name = account.get('name', '')
                 publisher_id = account.get('publisherId', '')
                 
-                print(f"      [DEBUG] Account: {account_name}, Publisher: {publisher_id}")
+                logger.debug(f"Account: {account_name}, Publisher: {publisher_id}")
                 
                 # Match by publisher ID (with or without pub- prefix)
                 if self.publisher_id in publisher_id or publisher_id.replace('pub-', '') == self.publisher_id:
                     self.account_name = account_name
-                    print(f"      [INFO] Using account: {account_name}")
+                    logger.info(f"Using account: {account_name}")
                     return account_name
             
             # If no match, use first account
             self.account_name = accounts[0].get('name', '')
-            print(f"      [WARN] Publisher ID not matched, using first account: {self.account_name}")
+            logger.warning(f"Publisher ID not matched, using first account: {self.account_name}")
             return self.account_name
             
         except HttpError as e:
-            print(f"      [ERROR] Failed to list accounts: {e.reason}")
+            logger.error(f"Failed to list accounts: {e.reason}")
             raise
     
-    def fetch_data(self, start_date: datetime, end_date: datetime) -> Dict[str, Any]:
+    async def fetch_data(self, start_date: datetime, end_date: datetime) -> FetchResult:
         """
         Fetch data from AdMob Mediation Report API.
+        
+        Note: Uses synchronous Google API client internally, run in executor.
         
         Args:
             start_date: Start date for data fetch
             end_date: End date for data fetch
             
         Returns:
-            Dictionary containing revenue and impressions data by platform and ad type
+            FetchResult containing revenue and impressions data by platform and ad type
         """
-        print(f"      [INFO] Fetching AdMob data...")
+        logger.debug("Fetching AdMob data...")
         
-        # Initialize result structure
-        result = {
-            'revenue': 0.0,
-            'impressions': 0,
-            'ecpm': 0.0,
-            'network': self.get_network_name(),
-            'platform_data': self._init_platform_data(),
-            'date_range': {
-                'start': start_date.strftime("%Y-%m-%d"),
-                'end': end_date.strftime("%Y-%m-%d")
-            }
-        }
+        # Initialize data structures using base class helpers
+        ad_data = self._init_ad_data()
+        platform_data = self._init_platform_data()
+        
+        total_revenue = 0.0
+        total_impressions = 0
         
         try:
             # Build the mediation report request
-            # Using Network Report for AdMob's own ad serving data
             request_body = {
                 'reportSpec': {
                     'dateRange': {
@@ -324,12 +288,15 @@ class AdmobFetcher(NetworkDataFetcher):
             # Get account name (will list accounts and find the correct one)
             account_name = self._get_account_name()
             
-            report_request = self.service.accounts().networkReport().generate(
-                parent=account_name,
-                body=request_body
+            # Execute the synchronous Google API call in an executor
+            loop = asyncio.get_event_loop()
+            response = await loop.run_in_executor(
+                None,
+                lambda: self.service.accounts().networkReport().generate(
+                    parent=account_name,
+                    body=request_body
+                ).execute()
             )
-            
-            response = report_request.execute()
             
             # Process response rows
             rows = response.get('rows', []) if isinstance(response, dict) else []
@@ -341,37 +308,45 @@ class AdmobFetcher(NetworkDataFetcher):
                     if 'row' in item:
                         rows.append(item['row'])
             
-            print(f"      [INFO] Retrieved {len(rows)} rows from AdMob")
+            logger.debug(f"Retrieved {len(rows)} rows from AdMob")
             
             for row in rows:
-                self._process_row(row, result)
+                revenue, impressions = self._process_row(row, ad_data, platform_data)
+                total_revenue += revenue
+                total_impressions += impressions
             
-            # Finalize eCPM calculations
-            self._finalize_ecpm(result)
-            
-            print(f"      [INFO] AdMob Total: ${result['revenue']:.2f} revenue, {result['impressions']:,} impressions")
+            logger.info(f"AdMob Total: ${total_revenue:.2f} revenue, {total_impressions:,} impressions")
             
         except HttpError as e:
-            print(f"      [ERROR] AdMob API error: {e.reason}")
+            logger.error(f"AdMob API error: {e.reason}")
             raise
         except Exception as e:
-            print(f"      [ERROR] AdMob fetch error: {str(e)}")
+            logger.error(f"AdMob fetch error: {str(e)}")
             raise
+        
+        # Build result using base class helper
+        result = self._build_result(start_date, end_date, total_revenue, total_impressions, ad_data, platform_data)
+        self._finalize_ecpm(result, ad_data, platform_data)
         
         return result
     
-    def _process_row(self, row: Dict[str, Any], result: Dict[str, Any]):
-        """Process a single row from AdMob report response."""
+    def _process_row(self, row: Dict[str, Any], ad_data: Dict, platform_data: Dict) -> tuple:
+        """
+        Process a single row from AdMob report response.
+        
+        Returns:
+            Tuple of (revenue, impressions) added from this row
+        """
         try:
             # Extract dimension values
             dimension_values = row.get('dimensionValues', {})
             metric_values = row.get('metricValues', {})
             
-            # Get platform
+            # Get platform as enum
             platform_value = dimension_values.get('PLATFORM', {}).get('value', '')
             platform = self._normalize_platform(platform_value)
             
-            # Get ad format
+            # Get ad format as enum
             format_value = dimension_values.get('FORMAT', {}).get('value', '')
             ad_type = self._normalize_ad_format(format_value)
             
@@ -381,24 +356,20 @@ class AdmobFetcher(NetworkDataFetcher):
             
             impressions = int(metric_values.get('IMPRESSIONS', {}).get('integerValue', 0))
             
-            # Update platform data
-            platform_data = result['platform_data'][platform]
-            platform_data['revenue'] += revenue
-            platform_data['impressions'] += impressions
+            # Accumulate using base class helper (note: parameter order is platform_data, ad_data)
+            self._accumulate_metrics(platform_data, ad_data, platform, ad_type, revenue, impressions)
             
-            # Update ad type data
-            ad_data = platform_data['ad_data'][ad_type]
-            ad_data['revenue'] += revenue
-            ad_data['impressions'] += impressions
-            
-            # Update totals
-            result['revenue'] += revenue
-            result['impressions'] += impressions
+            return (revenue, impressions)
             
         except (KeyError, TypeError, ValueError) as e:
-            print(f"      [WARN] Error processing row: {e}")
+            logger.warning(f"Error processing row: {e}")
+            return (0.0, 0)
     
     def get_network_name(self) -> str:
         """Return the network name."""
-        return "Google Bidding"
+        return NetworkName.ADMOB.display_name
+    
+    def get_network_enum(self) -> NetworkName:
+        """Return the NetworkName enum."""
+        return NetworkName.ADMOB
 

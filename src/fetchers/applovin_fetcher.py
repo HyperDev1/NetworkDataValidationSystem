@@ -1,22 +1,45 @@
 """
 AppLovin Max Network Comparison data fetcher implementation.
+Async version using aiohttp with retry support.
 Fetches both MAX data and Network's own reported data for comparison.
-Uses AppLovin Network Comparison Reporting API.
 """
-import requests
+import logging
 from datetime import datetime
-from typing import Dict, Any
-from .base_fetcher import NetworkDataFetcher
+from typing import Dict, Any, List, Optional
+
+from .base_fetcher import NetworkDataFetcher, FetchResult
+from ..enums import Platform, AdType, NetworkName
+
+
+logger = logging.getLogger(__name__)
 
 
 class ApplovinFetcher(NetworkDataFetcher):
     """Fetcher for AppLovin Max Network Comparison data."""
+    
+    BASE_URL = "https://r.applovin.com/maxReport"
     
     # Ad format mapping
     AD_FORMAT_NAMES = {
         'BANNER': 'Banner',
         'INTER': 'Interstitial', 
         'REWARDED': 'Rewarded'
+    }
+    
+    # Ad type mapping to enum
+    AD_TYPE_MAP = {
+        'BANNER': AdType.BANNER,
+        'INTER': AdType.INTERSTITIAL,
+        'INTERSTITIAL': AdType.INTERSTITIAL,
+        'REWARDED': AdType.REWARDED,
+    }
+    
+    # Platform mapping
+    PLATFORM_MAP = {
+        'android': Platform.ANDROID,
+        'Android': Platform.ANDROID,
+        'ios': Platform.IOS,
+        'iOS': Platform.IOS,
     }
     
     # Network name mapping (Applovin network names to our standard names)
@@ -62,7 +85,7 @@ class ApplovinFetcher(NetworkDataFetcher):
         'id1670670715': 'Clear And Shoot',
     }
     
-    def __init__(self, api_key: str, applications: list = None):
+    def __init__(self, api_key: str, applications: Optional[List] = None):
         """
         Initialize Applovin fetcher.
         
@@ -70,9 +93,9 @@ class ApplovinFetcher(NetworkDataFetcher):
             api_key: Applovin API key
             applications: List of application configs with app_name, display_name, platform
         """
+        super().__init__()
         self.api_key = api_key
         self.applications = applications or []
-        self.base_url = "https://r.applovin.com/maxReport"
         
         # Build lookup maps from applications config
         self._app_name_to_display = {}
@@ -119,7 +142,6 @@ class ApplovinFetcher(NetworkDataFetcher):
             return f"{config['display_name']} ({config['platform']})"
         
         # Fallback: clean up the app name
-        # Remove platform suffixes like "DRD", "IOS" 
         clean_name = app_name.replace(' DRD', '').replace(' IOS', '').replace(' ios', '').strip()
         
         return f"{clean_name} ({platform})"
@@ -177,23 +199,23 @@ class ApplovinFetcher(NetworkDataFetcher):
         sign = "+" if delta > 0 else ""
         return f"{sign}{delta:.1f}%"
     
-    def fetch_data(self, start_date: datetime, end_date: datetime) -> Dict[str, Any]:
+    async def fetch_data(self, start_date: datetime, end_date: datetime) -> FetchResult:
         """
         Fetch Network Comparison data from AppLovin Max API.
         
+        Args:
+            start_date: Start date for data fetch
+            end_date: End date for data fetch
+            
         Returns:
-            Dictionary containing comparison rows for each application/network/ad_type
+            FetchResult containing comparison rows for each application/network/ad_type
         """
-        print(f"      [INFO] Fetching Network Comparison data...")
+        logger.debug("Fetching AppLovin Network Comparison data...")
         
-        # First, try to fetch with Network Comparison columns
-        # AppLovin Network Comparison uses: third_party_revenue, third_party_impressions, third_party_ecpm
+        # Column sets to try
         column_sets = [
-            # Network Comparison columns (third party = network's own reported data)
             "day,application,platform,network,ad_format,estimated_revenue,impressions,ecpm,third_party_estimated_revenue,third_party_impressions,third_party_ecpm",
-            # Alternative naming
             "day,application,platform,network,ad_format,estimated_revenue,impressions,ecpm,network_estimated_revenue,network_impressions",
-            # Fallback to basic columns (MAX data only)
             "day,application,platform,network,ad_format,estimated_revenue,impressions,ecpm",
         ]
         
@@ -212,32 +234,26 @@ class ApplovinFetcher(NetworkDataFetcher):
             }
 
             try:
-                response = requests.get(self.base_url, params=params, timeout=30)
-                print(f"      [INFO] API Status: {response.status_code} (columns: {columns[:50]}...)")
+                response_data = await self._get_json(self.BASE_URL, params=params)
                 
-                if response.status_code >= 400:
-                    print(f"      [WARN] Column set failed: {response.text[:100]}")
-                    continue
-                    
-                data = response.json()
-                if data and (data.get('results') or data.get('data') or data.get('rows')):
+                if response_data and (response_data.get('results') or response_data.get('data') or response_data.get('rows')):
+                    data = response_data
                     used_columns = columns
                     break
             except Exception as e:
-                print(f"      [WARN] Request failed: {str(e)}")
+                logger.warning(f"AppLovin column set failed: {str(e)}")
                 continue
         
         if data is None:
             raise Exception("Failed to fetch data from AppLovin Max API - all column sets failed")
 
         rows = data.get('results') or data.get('data') or data.get('rows') or []
-        print(f"      [INFO] Retrieved {len(rows)} rows using columns: {used_columns[:60]}...")
+        logger.debug(f"AppLovin retrieved {len(rows)} rows")
         
         # Check if we have network comparison data
         has_network_data = used_columns and ('third_party' in used_columns or 'network_estimated' in used_columns)
-        print(f"      [INFO] Network comparison data available: {has_network_data}")
         
-        # Structure for aggregation: {(application_display, network, ad_type): comparison_data}
+        # Structure for aggregation
         aggregated = {}
         
         # Totals
@@ -329,17 +345,29 @@ class ApplovinFetcher(NetworkDataFetcher):
         # Sort by application, then network, then ad_type
         comparison_rows.sort(key=lambda x: (x['application'], x['network'], x['ad_type']))
         
-        return {
+        # Build result using base class date range format
+        result = {
             'comparison_rows': comparison_rows,
             'totals': totals,
+            'revenue': totals['max_revenue'],
+            'impressions': totals['max_impressions'],
+            'ecpm': self._calculate_ecpm(totals['max_revenue'], totals['max_impressions']),
             'network': self.get_network_name(),
+            'ad_data': self._init_ad_data(),
+            'platform_data': self._init_platform_data(),
             'date_range': {
                 'start': start_date.strftime("%Y-%m-%d"),
                 'end': end_date.strftime("%Y-%m-%d")
             }
         }
+        
+        return result
 
     def get_network_name(self) -> str:
         """Return the network name."""
-        return "AppLovin Max"
+        return NetworkName.APPLOVIN.display_name
+    
+    def get_network_enum(self) -> NetworkName:
+        """Return the NetworkName enum."""
+        return NetworkName.APPLOVIN
 

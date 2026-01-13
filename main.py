@@ -1,33 +1,49 @@
 """
 Main entry point for the Network Data Validation System.
+
+Optimized with asyncio for parallel network fetching.
 """
 import sys
 import io
 import time
+import asyncio
+import logging
 import schedule
 from datetime import datetime
 from src.config import Config
 from src.validation_service import ValidationService
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
 # Fix console encoding for Windows
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 
 
-def run_validation_check(service: ValidationService):
+def run_validation_check(service: ValidationService, start_date=None, end_date=None):
     """
     Run a single validation check.
     
     Args:
         service: ValidationService instance
+        start_date: Optional start date for backfill
+        end_date: Optional end date for backfill
     """
     try:
         print("\n" + "=" * 60)
-        result = service.run_validation()
+        # Run async validation using asyncio.run()
+        result = asyncio.run(service.run_validation(start_date=start_date, end_date=end_date))
         print("=" * 60 + "\n")
         
         if not result['success']:
+            logger.error(f"Validation check failed: {result.get('message', 'Unknown error')}")
             print(f"Validation check failed: {result.get('message', 'Unknown error')}")
     except Exception as e:
+        logger.error(f"Error during validation check: {e}", exc_info=True)
         print(f"Error during validation check: {str(e)}")
 
 
@@ -40,10 +56,14 @@ def main():
     if len(sys.argv) > 1 and sys.argv[1] == '--help':
         print("\nKullanım:")
         print("  python main.py              - Bir kez çalıştır ve çık (varsayılan)")
-        print("  python main.py --schedule   - Zamanlamayı başlat (09:30 ve 17:30)")
+        print("  python main.py --schedule   - Zamanlamayı başlat (config.yaml'dan interval ve start_time)")
         print("  python main.py --schedule-now - Önce çalıştır, sonra zamanlamayı başlat")
         print("  python main.py --test-slack - Slack bağlantısını test et")
+        print("  python main.py --start-date 2026-01-01 --end-date 2026-01-10 - Belirli tarih aralığı için backfill")
         print("  python main.py --help       - Bu yardım mesajını göster")
+        print("\nZamanlama ayarları config.yaml'dan okunur:")
+        print("  scheduling.interval_hours: Çalışma aralığı (saat)")
+        print("  scheduling.start_time: Başlangıç saati (HH:MM)")
         sys.exit(0)
     
     # Load configuration
@@ -60,6 +80,24 @@ def main():
     # Initialize service
     service = ValidationService(config)
     
+    # Parse date arguments
+    start_date = None
+    end_date = None
+    
+    if '--start-date' in sys.argv:
+        idx = sys.argv.index('--start-date')
+        if idx + 1 < len(sys.argv):
+            start_date = datetime.strptime(sys.argv[idx + 1], '%Y-%m-%d')
+    
+    if '--end-date' in sys.argv:
+        idx = sys.argv.index('--end-date')
+        if idx + 1 < len(sys.argv):
+            end_date = datetime.strptime(sys.argv[idx + 1], '%Y-%m-%d')
+    
+    # If start_date provided but not end_date, use start_date as end_date
+    if start_date and not end_date:
+        end_date = start_date
+    
     # Check command line arguments
     if len(sys.argv) > 1:
         if sys.argv[1] == '--test-slack':
@@ -67,15 +105,19 @@ def main():
             service.test_slack_integration()
             sys.exit(0)
         elif sys.argv[1] == '--schedule':
-            # Run with fixed time scheduling (09:30 and 17:30)
+            # Run with config-based interval scheduling
+            interval_hours = config.get_scheduling_interval_hours()
+            scheduled_times = config.get_scheduled_times()
+            
             print("\n🕐 Zamanlama aktif!")
-            print("   📅 Her gün saat 09:30 ve 17:30'da çalışacak")
+            print(f"   📅 Her {interval_hours} saatte bir çalışacak")
+            print(f"   🕐 Çalışma saatleri: {', '.join(scheduled_times)}")
             print("   ⏰ Şu anki saat:", datetime.now().strftime("%H:%M:%S"))
             print("\nDurdurmak için Ctrl+C basın\n")
             
-            # Schedule at specific times
-            schedule.every().day.at("09:30").do(lambda: run_validation_check(service))
-            schedule.every().day.at("17:30").do(lambda: run_validation_check(service))
+            # Schedule at calculated times from config
+            for run_time in scheduled_times:
+                schedule.every().day.at(run_time).do(lambda: run_validation_check(service))
             
             # Show next run time
             next_run = schedule.next_run()
@@ -91,9 +133,13 @@ def main():
                 print("\n\n🛑 Kapatılıyor...")
                 sys.exit(0)
         elif sys.argv[1] == '--schedule-now':
-            # Run immediately then continue with schedule
+            # Run immediately then continue with config-based schedule
+            interval_hours = config.get_scheduling_interval_hours()
+            scheduled_times = config.get_scheduled_times()
+            
             print("\n🕐 Zamanlama aktif (önce bir kez çalıştırılacak)!")
-            print("   📅 Her gün saat 09:30 ve 17:30'da çalışacak")
+            print(f"   📅 Her {interval_hours} saatte bir çalışacak")
+            print(f"   🕐 Çalışma saatleri: {', '.join(scheduled_times)}")
             print("   ⏰ Şu anki saat:", datetime.now().strftime("%H:%M:%S"))
             print("\nDurdurmak için Ctrl+C basın\n")
             
@@ -101,9 +147,9 @@ def main():
             print("🚀 Şimdi çalıştırılıyor...\n")
             run_validation_check(service)
             
-            # Schedule at specific times
-            schedule.every().day.at("09:30").do(lambda: run_validation_check(service))
-            schedule.every().day.at("17:30").do(lambda: run_validation_check(service))
+            # Schedule at calculated times from config
+            for run_time in scheduled_times:
+                schedule.every().day.at(run_time).do(lambda: run_validation_check(service))
             
             # Show next run time
             next_run = schedule.next_run()
@@ -119,8 +165,19 @@ def main():
                 print("\n\n🛑 Kapatılıyor...")
                 sys.exit(0)
     
-    # Default: Run once and exit
-    run_validation_check(service)
+    # Default: Run once and exit (with optional date range)
+    if start_date:
+        print(f"\n🔄 Backfill mode: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}")
+        from datetime import timedelta
+        current = start_date
+        while current <= end_date:
+            print(f"\n{'='*60}")
+            print(f"📅 Processing: {current.strftime('%Y-%m-%d')}")
+            print(f"{'='*60}")
+            run_validation_check(service, start_date=current, end_date=current)
+            current += timedelta(days=1)
+    else:
+        run_validation_check(service)
     print("\nDone.")
     sys.exit(0)
 
