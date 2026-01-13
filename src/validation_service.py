@@ -142,32 +142,45 @@ class ValidationService:
         print(f"[{now_utc.strftime('%Y-%m-%d %H:%M:%S')} UTC] Starting Network Comparison Report...")
         print("=" * 80)
         
-        # Calculate date range - 1 day delay for data availability (UTC)
+        # Calculate date range - default 7 days for comprehensive comparison
         validation_config = self.config.get_validation_config()
-        date_range_days = validation_config.get('date_range_days', 1)
+        date_range_days = validation_config.get('date_range_days', 7)
         
         # Use provided dates or default to yesterday
         if start_date and end_date:
             # Backfill mode - use provided dates
             start_date = start_date.replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=timezone.utc)
             end_date = end_date.replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=timezone.utc)
-            # In backfill mode, Meta also uses the same date (not T-3)
+            # In backfill mode, delayed networks also use the same date
             meta_start_date = start_date
             meta_end_date = end_date
+            dt_exchange_start_date = start_date
+            dt_exchange_end_date = end_date
             meta_delay_days = 0  # No delay in backfill mode
+            dt_exchange_delay_days = 0
         else:
-            # Normal mode - use yesterday
+            # Normal mode - use yesterday for standard networks (T-1)
             end_date = now_utc.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=1)
             start_date = end_date - timedelta(days=date_range_days - 1)
+            
             # Meta requires delay for stable daily data - use fetcher's configured delay
             from .fetchers.meta_fetcher import MetaFetcher
             meta_delay_days = MetaFetcher.DATA_DELAY_DAYS
             meta_end_date = now_utc.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=meta_delay_days)
             meta_start_date = meta_end_date - timedelta(days=date_range_days - 1)
+            
+            # DT Exchange: Try T-1 but API may not have data yet (up to 12h+ delay)
+            # If T-1 has no data, it will be filtered out before GCS export
+            # Docs: https://developer.digitalturbine.com/hc/en-us/articles/8101286018717
+            dt_exchange_delay_days = 1  # Try T-1, filter empty days later
+            dt_exchange_end_date = now_utc.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=dt_exchange_delay_days)
+            dt_exchange_start_date = dt_exchange_end_date - timedelta(days=date_range_days - 1)
         
-        print(f"📅 Date range (UTC): {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}")
+        print(f"📅 Date range (UTC): {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')} ({date_range_days} days)")
         if meta_delay_days > 0:
-            print(f"📅 Meta date range (UTC, T-{meta_delay_days} daily mode): {meta_start_date.strftime('%Y-%m-%d')} to {meta_end_date.strftime('%Y-%m-%d')}")
+            print(f"📅 Meta date range (UTC, T-{meta_delay_days}): {meta_start_date.strftime('%Y-%m-%d')} to {meta_end_date.strftime('%Y-%m-%d')}")
+        if dt_exchange_delay_days > 0:
+            print(f"📅 DT Exchange date range (UTC, T-{dt_exchange_delay_days}): {dt_exchange_start_date.strftime('%Y-%m-%d')} to {dt_exchange_end_date.strftime('%Y-%m-%d')}")
         print("=" * 80)
         
         if not self.applovin_fetcher:
@@ -187,11 +200,11 @@ class ValidationService:
             print(f"   ❌ Error: {str(e)}")
             return {'success': False, 'message': f'Failed to fetch MAX data: {str(e)}'}
         
-        # Step 1b: Fetch separate MAX data for Meta using T-3 dates
+        # Step 1b: Fetch separate MAX data for Meta using T-2 dates
         max_rows_meta = []
         if 'meta' in self.network_fetchers:
             try:
-                print(f"   📥 Fetching MAX data for Meta (T-3: {meta_end_date.strftime('%Y-%m-%d')})...")
+                print(f"   📥 Fetching MAX data for Meta (T-{meta_delay_days}: {meta_end_date.strftime('%Y-%m-%d')})...")
                 max_data_meta = await self.applovin_fetcher.fetch_data(meta_start_date, meta_end_date)
                 max_rows_meta = max_data_meta.get('comparison_rows', [])
                 logger.info(f"Retrieved {len(max_rows_meta)} rows from MAX for Meta comparison")
@@ -201,24 +214,49 @@ class ValidationService:
                 print(f"   ⚠️ Failed to fetch MAX data for Meta: {str(e)}")
                 max_rows_meta = []
         
+        # Step 1c: Fetch separate MAX data for DT Exchange using T-2 dates
+        max_rows_dt_exchange = []
+        if 'dt_exchange' in self.network_fetchers and dt_exchange_delay_days > 0:
+            try:
+                print(f"   📥 Fetching MAX data for DT Exchange (T-{dt_exchange_delay_days}: {dt_exchange_end_date.strftime('%Y-%m-%d')})...")
+                max_data_dt = await self.applovin_fetcher.fetch_data(dt_exchange_start_date, dt_exchange_end_date)
+                max_rows_dt_exchange = max_data_dt.get('comparison_rows', [])
+                logger.info(f"Retrieved {len(max_rows_dt_exchange)} rows from MAX for DT Exchange comparison")
+                print(f"   ✅ Retrieved {len(max_rows_dt_exchange)} rows from MAX for DT Exchange comparison")
+            except Exception as e:
+                logger.warning(f"Failed to fetch MAX data for DT Exchange: {e}")
+                print(f"   ⚠️ Failed to fetch MAX data for DT Exchange: {str(e)}")
+                max_rows_dt_exchange = []
+        
         # Step 2: Fetch data from all networks IN PARALLEL (main optimization)
         print(f"\n📊 Step 2: Fetching data from {len(self.network_fetchers)} networks in parallel...")
         
         network_data = await self._fetch_all_networks_parallel(
             start_date, end_date, 
-            meta_start_date, meta_end_date
+            meta_start_date, meta_end_date,
+            dt_exchange_start_date, dt_exchange_end_date
         )
         
         # Step 3: Merge MAX data with Network data
         print(f"\n📊 Step 3: Comparing MAX vs Network data...")
         
+        # Networks with special date handling (exclude from standard merge)
+        delayed_networks = ['meta']
+        if dt_exchange_delay_days > 0:
+            delayed_networks.append('dt_exchange')
+        
         # Merge standard networks with standard MAX data
-        comparison_rows = self._merge_data(max_rows, network_data, exclude_networks=['meta'])
+        comparison_rows = self._merge_data(max_rows, network_data, exclude_networks=delayed_networks)
         
         # Merge Meta with shifted MAX data
         if max_rows_meta and 'meta' in network_data:
             meta_comparison_rows = self._merge_data(max_rows_meta, network_data, include_networks=['meta'])
             comparison_rows.extend(meta_comparison_rows)
+        
+        # Merge DT Exchange with shifted MAX data
+        if max_rows_dt_exchange and 'dt_exchange' in network_data:
+            dt_comparison_rows = self._merge_data(max_rows_dt_exchange, network_data, include_networks=['dt_exchange'])
+            comparison_rows.extend(dt_comparison_rows)
         
         # Sort all rows
         comparison_rows.sort(key=lambda x: (x['network'], x['application']))
@@ -238,11 +276,16 @@ class ValidationService:
             table = self._generate_comparison_table(comparison_rows)
             print(table)
             
-            # Send to Slack
+            # Send to Slack (7-day report in single message, old style format)
             if self.notifier:
-                print("\n📤 Sending report to Slack...")
+                print("\n📤 Sending 7-day report to Slack...")
                 threshold = self.config.get_slack_revenue_delta_threshold()
                 min_revenue = self.config.get_slack_min_revenue_for_alerts()
+                
+                # Get date range for report
+                dates = sorted(set(row.get('date', '') for row in comparison_rows if row.get('date')))
+                end_date = datetime.strptime(dates[-1], '%Y-%m-%d') if dates else datetime.now()
+                
                 success = self.notifier.send_comparison_report(
                     comparison_rows=comparison_rows,
                     totals=totals,
@@ -259,14 +302,14 @@ class ValidationService:
                     logger.error("Failed to send report to Slack")
                     print("   ❌ Failed to send report")
             
-            # Export to GCS for BigQuery/Looker analytics
+            # Export to GCS for BigQuery/Looker analytics (multi-day with upsert)
             if self.gcs_exporter:
-                print("\n📤 Exporting data to GCS...")
+                print("\n📤 Exporting multi-day data to GCS...")
                 try:
-                    gcs_files = self.gcs_exporter.export_to_gcs(comparison_rows, end_date)
+                    gcs_files = self.gcs_exporter.export_multi_day(comparison_rows)
                     if gcs_files:
-                        logger.info(f"Exported {len(comparison_rows)} comparison rows to GCS")
-                        print(f"   ✅ Exported {len(comparison_rows)} comparison rows to GCS")
+                        logger.info(f"Exported {len(comparison_rows)} comparison rows to GCS ({len(gcs_files)} files)")
+                        print(f"   ✅ Exported {len(comparison_rows)} comparison rows to GCS ({len(gcs_files)} files)")
                         for f in gcs_files:
                             print(f"      📁 {f}")
                     else:
@@ -290,7 +333,9 @@ class ValidationService:
         start_date: datetime,
         end_date: datetime,
         meta_start_date: datetime,
-        meta_end_date: datetime
+        meta_end_date: datetime,
+        dt_exchange_start_date: datetime = None,
+        dt_exchange_end_date: datetime = None
     ) -> Dict[str, Any]:
         """
         Fetch data from all configured networks in parallel using asyncio.gather.
@@ -302,8 +347,10 @@ class ValidationService:
         Args:
             start_date: Start date for standard networks
             end_date: End date for standard networks
-            meta_start_date: Start date for Meta (T-3)
-            meta_end_date: End date for Meta (T-3)
+            meta_start_date: Start date for Meta (T-2)
+            meta_end_date: End date for Meta (T-2)
+            dt_exchange_start_date: Start date for DT Exchange (T-2)
+            dt_exchange_end_date: End date for DT Exchange (T-2)
             
         Returns:
             Dictionary mapping network names to their fetched data
@@ -311,17 +358,26 @@ class ValidationService:
         import time
         start_time = time.time()
         
-        # Networks that may need fallback to earlier dates
-        fallback_networks = {'meta', 'admob', 'dt_exchange'}
+        # Use provided dates or fallback to standard dates
+        if dt_exchange_start_date is None:
+            dt_exchange_start_date = start_date
+        if dt_exchange_end_date is None:
+            dt_exchange_end_date = end_date
+        
+        # Networks that may need fallback to earlier dates (only if initial fetch fails)
+        fallback_networks = {'admob'}  # Removed meta and dt_exchange - they use dedicated dates now
         max_fallback_days = 2  # Try up to 2 days earlier if data is empty
         
         async def fetch_network_with_fallback(network_name: str, fetcher) -> Tuple[str, Optional[Dict[str, Any]]]:
             """Fetch data from a single network with fallback for empty results."""
             try:
-                # Determine initial date range
+                # Determine initial date range based on network
                 if network_name == 'meta':
                     fetch_start = meta_start_date
                     fetch_end = meta_end_date
+                elif network_name == 'dt_exchange':
+                    fetch_start = dt_exchange_start_date
+                    fetch_end = dt_exchange_end_date
                 else:
                     fetch_start = start_date
                     fetch_end = end_date
@@ -341,6 +397,21 @@ class ValidationService:
                         if data.get('impressions', 0) > 0:
                             logger.info(f"{network_name}: Found data for {earlier_date.strftime('%Y-%m-%d')}")
                             break
+                
+                # For DT Exchange, log which dates have data (to show last report date)
+                if network_name == 'dt_exchange':
+                    daily_data = data.get('daily_data', {})
+                    if daily_data:
+                        dates_with_data = sorted([d for d, v in daily_data.items() 
+                                                  if any(p.get(a, {}).get('impressions', 0) > 0 
+                                                        for p in v.values() for a in p.keys())])
+                        if dates_with_data:
+                            last_date = dates_with_data[-1]
+                            total_days = len(daily_data)
+                            logger.info(f"dt_exchange: Last report date: {last_date} ({len(dates_with_data)}/{total_days} days with data)")
+                            print(f"   📅 dt_exchange last report date: {last_date}")
+                        else:
+                            logger.warning(f"dt_exchange: No daily data available")
                 
                 date_range = data.get('date_range', {})
                 date_info = f"({date_range.get('start', '?')} to {date_range.get('end', '?')})"
@@ -405,10 +476,11 @@ class ValidationService:
                      exclude_networks: List[str] = None, include_networks: List[str] = None) -> List[Dict]:
         """
         Merge MAX data with network data for comparison.
+        Now supports daily matching: MAX rows have 'date' field, network_data has 'daily_data'.
         
         Args:
-            max_rows: MAX data rows from AppLovin
-            network_data: Network data from individual fetchers
+            max_rows: MAX data rows from AppLovin (each row has date, application, network, ad_type)
+            network_data: Network data from individual fetchers (includes daily_data for daily breakdown)
             exclude_networks: List of network keys to exclude (e.g., ['meta'])
             include_networks: List of network keys to include only (e.g., ['meta'])
         """
@@ -421,6 +493,7 @@ class ValidationService:
             
             platform = 'ios' if 'iOS' in row.get('application', '') else 'android'
             ad_type = row.get('ad_type', '').lower()
+            row_date = row.get('date')  # YYYY-MM-DD format from MAX data
             
             # Special handling for AppLovin's own networks (Applovin Bidding, Applovin Exchange)
             # For these networks, MAX data IS the network's own data - no separate API needed
@@ -449,9 +522,24 @@ class ValidationService:
                 
                 net_data = network_data[network_key]
                 
-                # Get platform-specific data
-                platform_data = net_data.get('platform_data', {}).get(platform, {})
-                ad_data = platform_data.get('ad_data', {}).get(ad_type, {})
+                # Try to get data from daily_data first (date-based matching)
+                daily_data = net_data.get('daily_data', {})
+                
+                if row_date and daily_data:
+                    # Daily data mode - strict date matching required
+                    if row_date not in daily_data:
+                        # Skip this row if network doesn't have data for this specific date
+                        # This prevents using aggregated totals for missing dates
+                        continue
+                    
+                    # Use daily_data for date-specific matching
+                    date_data = daily_data[row_date]
+                    platform_data = date_data.get(platform, {})
+                    ad_data = platform_data.get(ad_type, {})
+                else:
+                    # Fallback to aggregated platform_data (legacy support - single day mode)
+                    platform_data = net_data.get('platform_data', {}).get(platform, {})
+                    ad_data = platform_data.get('ad_data', {}).get(ad_type, {})
                 
                 # Skip if no network data for this ad type
                 if ad_data.get('impressions', 0) == 0:
@@ -459,7 +547,8 @@ class ValidationService:
                 
                 net_revenue = ad_data.get('revenue', 0)
                 net_impressions = ad_data.get('impressions', 0)
-                net_ecpm = ad_data.get('ecpm', 0)
+                # Calculate eCPM from revenue and impressions (API may not provide it)
+                net_ecpm = (net_revenue / net_impressions * 1000) if net_impressions > 0 else 0
             
             # Calculate deltas
             imp_delta = self._calculate_delta(row['max_impressions'], net_impressions)
@@ -469,13 +558,8 @@ class ValidationService:
             # Get display name for network (convert Vungle -> Liftoff etc.)
             display_network = self.NETWORK_DISPLAY_NAME_MAP.get(row['network'], row['network'])
             
-            # Get report date for this network (for date labeling in Slack)
-            report_date = None
-            if network_key and network_key in network_data:
-                date_range = network_data[network_key].get('date_range', {})
-                report_date = date_range.get('end') or date_range.get('start')
-            
             comparison_rows.append({
+                'date': row_date,  # Include date in comparison row
                 'application': row['application'],
                 'network': display_network,
                 'ad_type': row['ad_type'],
@@ -488,11 +572,10 @@ class ValidationService:
                 'max_ecpm': row['max_ecpm'],
                 'network_ecpm': net_ecpm,
                 'cpm_delta': cpm_delta,
-                'report_date': report_date,  # Date label for Slack report
             })
         
-        # Sort by application, then network
-        comparison_rows.sort(key=lambda x: (x['network'], x['application']))
+        # Sort by date, then network, then application
+        comparison_rows.sort(key=lambda x: (x.get('date', ''), x['network'], x['application']))
         
         return comparison_rows
     

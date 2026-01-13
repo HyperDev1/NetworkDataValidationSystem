@@ -129,17 +129,22 @@ class InMobiFetcher(NetworkDataFetcher):
     async def fetch_data(self, start_date: datetime, end_date: datetime) -> FetchResult:
         """
         Fetch revenue and impression data from InMobi Publisher Reporting API.
+        Returns data with daily breakdown for 7-day comparison.
         
         Args:
             start_date: Start date for data fetch
             end_date: End date for data fetch
             
         Returns:
-            FetchResult containing revenue and impressions data with platform/ad type breakdown
+            FetchResult containing revenue and impressions data with platform/ad type/daily breakdown
         """
         # Initialize data structures using base class helpers
         ad_data = self._init_ad_data()
         platform_data = self._init_platform_data()
+        
+        # Daily breakdown data: {date_str: {platform: {ad_type: {revenue, impressions}}}}
+        daily_data = {}
+        
         total_revenue = 0.0
         total_impressions = 0
         
@@ -167,6 +172,7 @@ class InMobiFetcher(NetworkDataFetcher):
                 ],
                 "timeFrame": time_frame,
                 "groupBy": [
+                    "date",
                     "platform",
                     "adUnitType"
                 ]
@@ -207,6 +213,14 @@ class InMobiFetcher(NetworkDataFetcher):
                 platform_raw = row.get("platform", "android")
                 ad_type_raw = row.get("adUnitType", "interstitial")
                 
+                # Get date from response (format might be: YYYY-MM-DD HH:MM:SS or YYYY-MM-DD)
+                date_key = row.get("date", "")
+                if not date_key:
+                    date_key = start_date.strftime('%Y-%m-%d')
+                else:
+                    # Normalize date to YYYY-MM-DD format (strip time if present)
+                    date_key = str(date_key).split(' ')[0]
+                
                 # Normalize values
                 platform = self._normalize_platform(str(platform_raw).lower())
                 ad_type = self._normalize_ad_type(str(ad_type_raw).lower())
@@ -221,6 +235,17 @@ class InMobiFetcher(NetworkDataFetcher):
                     platform, ad_type,
                     revenue, impressions
                 )
+                
+                # Accumulate daily breakdown
+                if date_key not in daily_data:
+                    daily_data[date_key] = {}
+                if platform.value not in daily_data[date_key]:
+                    daily_data[date_key][platform.value] = {}
+                if ad_type.value not in daily_data[date_key][platform.value]:
+                    daily_data[date_key][platform.value][ad_type.value] = {'revenue': 0.0, 'impressions': 0}
+                
+                daily_data[date_key][platform.value][ad_type.value]['revenue'] += revenue
+                daily_data[date_key][platform.value][ad_type.value]['impressions'] += impressions
             
             # Build result using base class helper
             result = self._build_result(
@@ -230,6 +255,9 @@ class InMobiFetcher(NetworkDataFetcher):
                 ad_data=ad_data,
                 platform_data=platform_data
             )
+            
+            # Add daily breakdown data for 7-day comparison
+            result['daily_data'] = daily_data
             
             # Finalize eCPM calculations
             self._finalize_ecpm(result, ad_data, platform_data)

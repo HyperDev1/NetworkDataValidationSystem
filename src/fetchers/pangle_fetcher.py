@@ -191,12 +191,18 @@ class PangleFetcher(NetworkDataFetcher):
         ad_data = self._init_ad_data()
         platform_data = self._init_platform_data()
         
+        # Daily breakdown data: {date_str: {platform: {ad_type: {revenue, impressions}}}}
+        daily_data = {}
+        
         total_revenue = 0.0
         total_impressions = 0
         
         # Iterate through each day in the range
         current_date = start_date
         while current_date <= end_date:
+            # Get date key for daily breakdown
+            date_key = current_date.strftime('%Y-%m-%d')
+            
             # Fetch data for the current day
             records = await self._fetch_single_day(current_date)
             
@@ -238,6 +244,17 @@ class PangleFetcher(NetworkDataFetcher):
                     platform, ad_type,
                     revenue, impressions
                 )
+                
+                # Accumulate daily breakdown
+                if date_key not in daily_data:
+                    daily_data[date_key] = {}
+                if platform.value not in daily_data[date_key]:
+                    daily_data[date_key][platform.value] = {}
+                if ad_type.value not in daily_data[date_key][platform.value]:
+                    daily_data[date_key][platform.value][ad_type.value] = {'revenue': 0.0, 'impressions': 0}
+                
+                daily_data[date_key][platform.value][ad_type.value]['revenue'] += revenue
+                daily_data[date_key][platform.value][ad_type.value]['impressions'] += impressions
             
             # Rate limit delay (5 QPS limit)
             await asyncio.sleep(self.RATE_LIMIT_DELAY)
@@ -253,6 +270,9 @@ class PangleFetcher(NetworkDataFetcher):
             ad_data=ad_data,
             platform_data=platform_data
         )
+        
+        # Add daily breakdown data for 7-day comparison
+        result['daily_data'] = daily_data
         
         # Finalize eCPM calculations
         self._finalize_ecpm(result, ad_data, platform_data)

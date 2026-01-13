@@ -140,7 +140,8 @@ class MetaFetcher(NetworkDataFetcher):
         self, 
         row: dict, 
         ad_data: dict, 
-        platform_data: dict
+        platform_data: dict,
+        daily_data: dict = None
     ) -> tuple:
         """
         Process a single metric row from Meta API.
@@ -149,6 +150,7 @@ class MetaFetcher(NetworkDataFetcher):
             row: Single row from API results
             ad_data: Ad type aggregated data
             platform_data: Platform aggregated data
+            daily_data: Daily breakdown data (optional)
             
         Returns:
             Tuple of (revenue_added, impressions_added)
@@ -159,6 +161,13 @@ class MetaFetcher(NetworkDataFetcher):
         try:
             metric = row.get('metric', '')
             value = float(row.get('value', 0) or 0)
+            
+            # Get time period for daily breakdown
+            time_str = row.get('time', '')
+            if time_str and len(time_str) >= 10:
+                date_key = time_str[:10]  # Extract YYYY-MM-DD from timestamp
+            else:
+                date_key = 'unknown'
             
             # Get breakdowns - list format: [{"key": "platform", "value": "android"}, ...]
             breakdowns = row.get('breakdowns', [])
@@ -181,12 +190,33 @@ class MetaFetcher(NetworkDataFetcher):
                 platform_data[plat_key]['ad_data'][ad_key]['revenue'] += value
                 platform_data[plat_key]['revenue'] += value
                 revenue_added = value
+                
+                # Accumulate daily breakdown
+                if daily_data is not None:
+                    if date_key not in daily_data:
+                        daily_data[date_key] = {}
+                    if plat_key not in daily_data[date_key]:
+                        daily_data[date_key][plat_key] = {}
+                    if ad_key not in daily_data[date_key][plat_key]:
+                        daily_data[date_key][plat_key][ad_key] = {'revenue': 0.0, 'impressions': 0}
+                    daily_data[date_key][plat_key][ad_key]['revenue'] += value
+                    
             elif metric == 'fb_ad_network_imp':
                 int_value = int(value)
                 ad_data[ad_key]['impressions'] += int_value
                 platform_data[plat_key]['ad_data'][ad_key]['impressions'] += int_value
                 platform_data[plat_key]['impressions'] += int_value
                 impressions_added = int_value
+                
+                # Accumulate daily breakdown
+                if daily_data is not None:
+                    if date_key not in daily_data:
+                        daily_data[date_key] = {}
+                    if plat_key not in daily_data[date_key]:
+                        daily_data[date_key][plat_key] = {}
+                    if ad_key not in daily_data[date_key][plat_key]:
+                        daily_data[date_key][plat_key][ad_key] = {'revenue': 0.0, 'impressions': 0}
+                    daily_data[date_key][plat_key][ad_key]['impressions'] += int_value
             # Skip cpm - we calculate it ourselves
             
         except (TypeError, ValueError, KeyError) as e:
@@ -218,6 +248,9 @@ class MetaFetcher(NetworkDataFetcher):
         # Initialize data structures using base class helpers
         ad_data = self._init_ad_data()
         platform_data = self._init_platform_data()
+        
+        # Daily breakdown data: {date_str: {platform: {ad_type: {revenue, impressions}}}}
+        daily_data = {}
         
         total_revenue = 0.0
         total_impressions = 0
@@ -266,7 +299,7 @@ class MetaFetcher(NetworkDataFetcher):
                 # Handle nested results structure from query response
                 if 'results' in entry:
                     for row in entry.get('results', []):
-                        rev, imps = self._process_metric_row(row, ad_data, platform_data)
+                        rev, imps = self._process_metric_row(row, ad_data, platform_data, daily_data)
                         total_revenue += rev
                         total_impressions += imps
             except (TypeError, ValueError, KeyError) as e:
@@ -281,6 +314,9 @@ class MetaFetcher(NetworkDataFetcher):
             ad_data=ad_data,
             platform_data=platform_data
         )
+        
+        # Add daily breakdown data for 7-day comparison
+        result['daily_data'] = daily_data
         
         # Finalize eCPM calculations
         self._finalize_ecpm(result, ad_data, platform_data)

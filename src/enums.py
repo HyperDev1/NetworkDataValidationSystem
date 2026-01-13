@@ -171,6 +171,7 @@ class NetworkName(str, Enum):
         delay_map = {
             NetworkName.META: 2,  # Meta has 48h delay
             NetworkName.PANGLE: 2,  # Pangle has delay
+            # DT Exchange: Try T-1, empty days filtered (last report date may be T-2)
         }
         return delay_map.get(self, 1)  # Default 1 day delay
     

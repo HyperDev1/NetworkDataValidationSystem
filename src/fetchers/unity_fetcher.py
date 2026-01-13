@@ -120,6 +120,9 @@ class UnityAdsFetcher(NetworkDataFetcher):
         ad_data = self._init_ad_data()
         platform_data = self._init_platform_data()
         
+        # Daily breakdown data: {date_str: {platform: {ad_type: {revenue, impressions}}}}
+        daily_data = {}
+        
         total_revenue = 0.0
         total_impressions = 0
         
@@ -137,6 +140,14 @@ class UnityAdsFetcher(NetworkDataFetcher):
                 placement = row.get('placement')
                 if not placement:
                     continue
+                
+                # Get date from response (format varies: YYYY-MM-DD or timestamp string)
+                date_raw = row.get('timestamp', row.get('date', ''))
+                if date_raw and isinstance(date_raw, str):
+                    # Handle ISO format: 2026-01-07T00:00:00.000Z
+                    date_key = date_raw[:10] if len(date_raw) >= 10 else date_raw
+                else:
+                    date_key = start_date.strftime('%Y-%m-%d')
                 
                 # Extract metrics
                 revenue = float(row.get('revenue_sum', row.get('revenue', 0)) or 0)
@@ -160,6 +171,17 @@ class UnityAdsFetcher(NetworkDataFetcher):
                     revenue, impressions
                 )
                 
+                # Accumulate daily breakdown
+                if date_key not in daily_data:
+                    daily_data[date_key] = {}
+                if platform.value not in daily_data[date_key]:
+                    daily_data[date_key][platform.value] = {}
+                if ad_type.value not in daily_data[date_key][platform.value]:
+                    daily_data[date_key][platform.value][ad_type.value] = {'revenue': 0.0, 'impressions': 0}
+                
+                daily_data[date_key][platform.value][ad_type.value]['revenue'] += revenue
+                daily_data[date_key][platform.value][ad_type.value]['impressions'] += impressions
+                
             except (TypeError, ValueError, KeyError) as e:
                 logger.warning(f"Unity Ads row parse error: {str(e)}")
                 continue
@@ -172,6 +194,9 @@ class UnityAdsFetcher(NetworkDataFetcher):
             ad_data=ad_data,
             platform_data=platform_data
         )
+        
+        # Add daily breakdown data for 7-day comparison
+        result['daily_data'] = daily_data
         
         # Calculate all eCPM values
         self._finalize_ecpm(result, ad_data, platform_data)
