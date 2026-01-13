@@ -119,7 +119,7 @@ class GCSExporter:
         
         Args:
             comparison_rows: List of comparison dictionaries from ValidationService
-            report_date: The date the report is for
+            report_date: The date the report is for (fallback if row has no date)
             
         Returns:
             PyArrow Table ready for Parquet export
@@ -153,7 +153,17 @@ class GCSExporter:
             # Keep network name as-is (with Bidding suffix for Looker display)
             network = row.get('network', '')
             
-            dates.append(report_date.date())
+            # Use row's date if available, otherwise fall back to report_date
+            row_date = row.get('date')
+            if row_date:
+                try:
+                    parsed_date = datetime.strptime(row_date, '%Y-%m-%d').date()
+                except ValueError:
+                    parsed_date = report_date.date()
+            else:
+                parsed_date = report_date.date()
+            
+            dates.append(parsed_date)
             networks.append(network)
             platforms.append(platform)
             ad_types.append(row.get('ad_type', '').lower())
@@ -400,6 +410,85 @@ class GCSExporter:
             return self.export_to_local(comparison_rows, report_date, output_dir)
         else:
             return self.export_to_gcs(comparison_rows, report_date)
+
+    def export_multi_day(
+        self,
+        comparison_rows: List[Dict[str, Any]],
+        dry_run: bool = False,
+        output_dir: str = "./output"
+    ) -> List[str]:
+        """
+        Export multi-day comparison data with upsert per date partition.
+        
+        Groups comparison_rows by their 'date' field and exports each date 
+        to its own partition. Existing files for each date are deleted before
+        writing new data (upsert behavior).
+        
+        Args:
+            comparison_rows: List of comparison dictionaries (must have 'date' field)
+            dry_run: If True, export to local files; if False, upload to GCS
+            output_dir: Local directory for dry-run output
+            
+        Returns:
+            List of file paths (local) or GCS URIs (upload)
+        """
+        if not comparison_rows:
+            print("⚠️  No data to export")
+            return []
+        
+        # Group rows by date
+        rows_by_date = self._group_by_date(comparison_rows)
+        
+        if not rows_by_date:
+            print("⚠️  No rows with valid date found")
+            return []
+        
+        print(f"📅 Exporting data for {len(rows_by_date)} dates")
+        
+        all_results = []
+        for date_str, date_rows in sorted(rows_by_date.items()):
+            # Parse date string to datetime
+            try:
+                report_date = datetime.strptime(date_str, '%Y-%m-%d')
+            except ValueError:
+                print(f"⚠️  Skipping invalid date: {date_str}")
+                continue
+            
+            print(f"   📆 {date_str}: {len(date_rows)} rows")
+            
+            if dry_run:
+                results = self.export_to_local(date_rows, report_date, output_dir)
+            else:
+                results = self.export_to_gcs(date_rows, report_date)
+            
+            all_results.extend(results)
+        
+        return all_results
+
+    def _group_by_date(
+        self,
+        comparison_rows: List[Dict[str, Any]]
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        """
+        Group comparison rows by date.
+        
+        Args:
+            comparison_rows: List of comparison dictionaries (must have 'date' field)
+            
+        Returns:
+            Dictionary with date strings (YYYY-MM-DD) as keys and row lists as values
+        """
+        grouped = {}
+        for row in comparison_rows:
+            date_str = row.get('date')
+            if not date_str:
+                continue
+            
+            if date_str not in grouped:
+                grouped[date_str] = []
+            grouped[date_str].append(row)
+        
+        return grouped
 
 
 def create_exporter_from_config(config: Dict[str, Any]) -> Optional[GCSExporter]:

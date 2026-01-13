@@ -82,14 +82,15 @@ class LiftoffFetcher(NetworkDataFetcher):
         headers = self._get_auth_headers()
         
         # Build query parameters
-        # Dimensions: platform, adType, incentivized (for ad type breakdown)
+        # Dimensions: date, platform, adType, incentivized (for ad type breakdown)
+        # - date: for daily breakdown (YYYY-MM-DD)
         # - adType: "banner" or "video"
         # - incentivized: true (rewarded) or false (interstitial) - only applies to video
         # Aggregates: impressions, revenue, clicks, ecpm
         params = {
             'start': start_date,
             'end': end_date,
-            'dimensions': 'platform,adType,incentivized',
+            'dimensions': 'date,platform,adType,incentivized',
             'aggregates': 'impressions,revenue,clicks,ecpm',
         }
         
@@ -127,15 +128,17 @@ class LiftoffFetcher(NetworkDataFetcher):
         self, 
         report_data: List[Dict[str, Any]],
         ad_data: Dict,
-        platform_data: Dict
+        platform_data: Dict,
+        daily_data: Dict
     ) -> tuple:
         """
-        Process report data and aggregate by platform.
+        Process report data and aggregate by platform with daily breakdown.
         
         Args:
             report_data: List of report rows from API
             ad_data: Ad data dict to populate
             platform_data: Platform data dict to populate
+            daily_data: Daily breakdown dict to populate
             
         Returns:
             Tuple of (total_revenue, total_impressions)
@@ -146,6 +149,11 @@ class LiftoffFetcher(NetworkDataFetcher):
         for row in report_data:
             if not isinstance(row, dict):
                 continue
+            
+            # Get date from response (format: YYYY-MM-DD)
+            date_key = row.get('date', '')
+            if not date_key:
+                date_key = 'unknown'
             
             # Get platform (iOS/Android)
             platform_raw = row.get('platform', '')
@@ -183,6 +191,17 @@ class LiftoffFetcher(NetworkDataFetcher):
                 platform, ad_type,
                 rev, imps
             )
+            
+            # Accumulate daily breakdown
+            if date_key not in daily_data:
+                daily_data[date_key] = {}
+            if platform.value not in daily_data[date_key]:
+                daily_data[date_key][platform.value] = {}
+            if ad_type.value not in daily_data[date_key][platform.value]:
+                daily_data[date_key][platform.value][ad_type.value] = {'revenue': 0.0, 'impressions': 0}
+            
+            daily_data[date_key][platform.value][ad_type.value]['revenue'] += rev
+            daily_data[date_key][platform.value][ad_type.value]['impressions'] += imps
         
         return total_revenue, total_impressions
     
@@ -205,12 +224,15 @@ class LiftoffFetcher(NetworkDataFetcher):
         ad_data = self._init_ad_data()
         platform_data = self._init_platform_data()
         
+        # Daily breakdown data: {date_str: {platform: {ad_type: {revenue, impressions}}}}
+        daily_data = {}
+        
         # Fetch report data
         report_data = await self._fetch_report_data(start_str, end_str)
         
         # Process and aggregate data
         total_revenue, total_impressions = self._process_report_data(
-            report_data, ad_data, platform_data
+            report_data, ad_data, platform_data, daily_data
         )
         
         # Build result using base class helper
@@ -221,6 +243,9 @@ class LiftoffFetcher(NetworkDataFetcher):
             ad_data=ad_data,
             platform_data=platform_data
         )
+        
+        # Add daily breakdown data for 7-day comparison
+        result['daily_data'] = daily_data
         
         # Finalize eCPM calculations
         self._finalize_ecpm(result, ad_data, platform_data)

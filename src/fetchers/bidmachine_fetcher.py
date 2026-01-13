@@ -194,6 +194,9 @@ class BidMachineFetcher(NetworkDataFetcher):
         ad_data = self._init_ad_data()
         platform_data = self._init_platform_data()
         
+        # Daily breakdown data: {date_str: {platform: {ad_type: {revenue, impressions}}}}
+        daily_data = {}
+        
         total_revenue = 0.0
         total_impressions = 0
         
@@ -205,6 +208,7 @@ class BidMachineFetcher(NetworkDataFetcher):
                 ad_data=ad_data,
                 platform_data=platform_data
             )
+            result['daily_data'] = daily_data
             self._finalize_ecpm(result, ad_data, platform_data)
             return result
         
@@ -216,6 +220,11 @@ class BidMachineFetcher(NetworkDataFetcher):
             app_bundle = str(row.get('app_bundle', ''))
             if self.app_bundle_ids and app_bundle not in self.app_bundle_ids:
                 continue
+            
+            # Get date from response (format: YYYY-MM-DD)
+            date_key = str(row.get('date', ''))
+            if not date_key:
+                date_key = start_date.strftime('%Y-%m-%d')
             
             # Extract metrics
             revenue = float(row.get('revenue', 0) or 0)
@@ -239,6 +248,17 @@ class BidMachineFetcher(NetworkDataFetcher):
                 platform, ad_type,
                 revenue, impressions
             )
+            
+            # Accumulate daily breakdown
+            if date_key not in daily_data:
+                daily_data[date_key] = {}
+            if platform.value not in daily_data[date_key]:
+                daily_data[date_key][platform.value] = {}
+            if ad_type.value not in daily_data[date_key][platform.value]:
+                daily_data[date_key][platform.value][ad_type.value] = {'revenue': 0.0, 'impressions': 0}
+            
+            daily_data[date_key][platform.value][ad_type.value]['revenue'] += revenue
+            daily_data[date_key][platform.value][ad_type.value]['impressions'] += impressions
         
         # Build result using base class helper
         result = self._build_result(
@@ -248,6 +268,9 @@ class BidMachineFetcher(NetworkDataFetcher):
             ad_data=ad_data,
             platform_data=platform_data
         )
+        
+        # Add daily breakdown data for 7-day comparison
+        result['daily_data'] = daily_data
         
         # Finalize eCPM calculations
         self._finalize_ecpm(result, ad_data, platform_data)

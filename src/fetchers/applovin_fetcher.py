@@ -212,10 +212,9 @@ class ApplovinFetcher(NetworkDataFetcher):
         """
         logger.debug("Fetching AppLovin Network Comparison data...")
         
-        # Column sets to try
+        # Column sets to try - start with basic columns that always work
+        # Note: third_party_* and network_* columns are deprecated in AppLovin API
         column_sets = [
-            "day,application,platform,network,ad_format,estimated_revenue,impressions,ecpm,third_party_estimated_revenue,third_party_impressions,third_party_ecpm",
-            "day,application,platform,network,ad_format,estimated_revenue,impressions,ecpm,network_estimated_revenue,network_impressions",
             "day,application,platform,network,ad_format,estimated_revenue,impressions,ecpm",
         ]
         
@@ -241,7 +240,7 @@ class ApplovinFetcher(NetworkDataFetcher):
                     used_columns = columns
                     break
             except Exception as e:
-                logger.warning(f"AppLovin column set failed: {str(e)}")
+                logger.debug(f"AppLovin column set failed: {str(e)}")
                 continue
         
         if data is None:
@@ -271,6 +270,11 @@ class ApplovinFetcher(NetworkDataFetcher):
             if not self._is_allowed_app(app_name):
                 continue
             
+            # Get date from 'day' column (format: YYYY-MM-DD)
+            date_str = row.get('day', '')
+            if not date_str:
+                date_str = start_date.strftime('%Y-%m-%d')
+            
             platform = self._detect_platform(row)
             application = self._get_app_display_name(app_name, platform)
             network = self._normalize_network_name(row.get('network', ''))
@@ -298,11 +302,12 @@ class ApplovinFetcher(NetworkDataFetcher):
             except (TypeError, ValueError):
                 continue
             
-            # Create key for aggregation
-            key = (application, network, ad_type)
+            # Create key for aggregation - include date for daily breakdown
+            key = (date_str, application, network, ad_type)
             
             if key not in aggregated:
                 aggregated[key] = {
+                    'date': date_str,
                     'application': application,
                     'network': network,
                     'ad_type': ad_type,
@@ -342,8 +347,8 @@ class ApplovinFetcher(NetworkDataFetcher):
             
             comparison_rows.append(cd)
         
-        # Sort by application, then network, then ad_type
-        comparison_rows.sort(key=lambda x: (x['application'], x['network'], x['ad_type']))
+        # Sort by date, application, then network, then ad_type
+        comparison_rows.sort(key=lambda x: (x.get('date', ''), x['application'], x['network'], x['ad_type']))
         
         # Build result using base class date range format
         result = {

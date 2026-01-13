@@ -70,7 +70,7 @@ class MintegralFetcher(NetworkDataFetcher):
             "time": timestamp,
             "start": start_date.strftime("%Y%m%d"),
             "end": end_date.strftime("%Y%m%d"),
-            "group_by": "platform",
+            "group_by": "date,platform",
             "timezone": 0,
         }
         
@@ -84,12 +84,16 @@ class MintegralFetcher(NetworkDataFetcher):
     
     async def fetch_data(self, start_date: datetime, end_date: datetime) -> FetchResult:
         """
-        Fetch data from Mintegral Reporting API grouped by ad type and platform.
+        Fetch data from Mintegral Reporting API grouped by date, ad type and platform.
         Makes separate requests for each ad_format since API doesn't return ad_format in response.
+        Returns daily breakdown data for 7-day comparison.
         """
         # Initialize data structures using base class helpers
         ad_data = self._init_ad_data()
         platform_data = self._init_platform_data()
+        
+        # Daily breakdown data: {date_str: {platform: {ad_type: {revenue, impressions}}}}
+        daily_data = {}
         
         total_revenue = 0.0
         total_impressions = 0
@@ -110,6 +114,14 @@ class MintegralFetcher(NetworkDataFetcher):
                         revenue = float(row.get('est_revenue', 0) or 0)
                         impressions = int(row.get('impression', 0) or 0)
                         
+                        # Parse date from response (format: YYYYMMDD)
+                        date_str = str(row.get('date', ''))
+                        if date_str and len(date_str) == 8:
+                            # Convert YYYYMMDD to YYYY-MM-DD
+                            date_key = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
+                        else:
+                            date_key = start_date.strftime('%Y-%m-%d')
+                        
                         # Detect platform using enum
                         plat_val = str(row.get('platform', '')).lower()
                         platform = Platform.IOS if plat_val == 'ios' else Platform.ANDROID
@@ -125,6 +137,17 @@ class MintegralFetcher(NetworkDataFetcher):
                             revenue, impressions
                         )
                         
+                        # Accumulate daily breakdown
+                        if date_key not in daily_data:
+                            daily_data[date_key] = {}
+                        if platform.value not in daily_data[date_key]:
+                            daily_data[date_key][platform.value] = {}
+                        if ad_type.value not in daily_data[date_key][platform.value]:
+                            daily_data[date_key][platform.value][ad_type.value] = {'revenue': 0.0, 'impressions': 0}
+                        
+                        daily_data[date_key][platform.value][ad_type.value]['revenue'] += revenue
+                        daily_data[date_key][platform.value][ad_type.value]['impressions'] += impressions
+                        
                 except Exception as e:
                     logger.warning(f"Mintegral {mintegral_format} error: {str(e)}")
                     continue
@@ -137,6 +160,9 @@ class MintegralFetcher(NetworkDataFetcher):
                 ad_data=ad_data,
                 platform_data=platform_data
             )
+            
+            # Add daily breakdown data for 7-day comparison
+            result['daily_data'] = daily_data
             
             # Finalize eCPM calculations
             self._finalize_ecpm(result, ad_data, platform_data)

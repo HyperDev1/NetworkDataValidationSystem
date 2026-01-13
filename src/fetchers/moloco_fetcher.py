@@ -207,6 +207,9 @@ class MolocoFetcher(NetworkDataFetcher):
         ad_data = self._init_ad_data()
         platform_data = self._init_platform_data()
         
+        # Daily breakdown data: {date_str: {platform: {ad_type: {revenue, impressions}}}}
+        daily_data = {}
+        
         # Add extended metrics
         for plat in platform_data:
             platform_data[plat]['requests'] = 0
@@ -228,6 +231,14 @@ class MolocoFetcher(NetworkDataFetcher):
         for row in rows:
             if not isinstance(row, dict):
                 continue
+            
+            # Get date from UTC_DATE dimension (format: "YYYY-MM-DD HH:MM:SS +0000 UTC")
+            date_key = row.get('utc_date', '')
+            if not date_key:
+                date_key = start_date.strftime('%Y-%m-%d')
+            else:
+                # Normalize date to YYYY-MM-DD format (strip time and timezone)
+                date_key = str(date_key).split(' ')[0]
             
             metric = row.get('metric', {})
             revenue = float(metric.get('revenue', 0) or 0)
@@ -283,6 +294,17 @@ class MolocoFetcher(NetworkDataFetcher):
             # Also accumulate ad_data totals
             ad_data[ad_key]['revenue'] += revenue
             ad_data[ad_key]['impressions'] += impressions
+            
+            # Accumulate daily breakdown
+            if date_key not in daily_data:
+                daily_data[date_key] = {}
+            if plat_key not in daily_data[date_key]:
+                daily_data[date_key][plat_key] = {}
+            if ad_key not in daily_data[date_key][plat_key]:
+                daily_data[date_key][plat_key][ad_key] = {'revenue': 0.0, 'impressions': 0}
+            
+            daily_data[date_key][plat_key][ad_key]['revenue'] += revenue
+            daily_data[date_key][plat_key][ad_key]['impressions'] += impressions
         
         # Build result using base class helper
         result = self._build_result(
@@ -295,6 +317,9 @@ class MolocoFetcher(NetworkDataFetcher):
             fills=total_fills,
             clicks=total_clicks
         )
+        
+        # Add daily breakdown data for 7-day comparison
+        result['daily_data'] = daily_data
         
         # Finalize eCPM calculations
         self._finalize_ecpm(result, ad_data, platform_data)

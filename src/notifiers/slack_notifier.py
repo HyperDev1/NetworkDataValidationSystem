@@ -141,7 +141,275 @@ class SlackNotifier:
             payload["channel"] = self.channel
         
         return self._send_to_slack(payload)
-    
+
+    def send_multi_day_comparison_report(
+        self,
+        comparison_rows: List[Dict],
+        network_data: Dict[str, Any] = None,
+        threshold: float = 10.0,
+        min_revenue: float = 25.0,
+        network_key_resolver: Callable[[str], Optional[str]] = None
+    ) -> bool:
+        """
+        Send 7-day aggregated Network Comparison report to Slack.
+        
+        Aggregates data across all dates and shows summary by network with date range.
+        
+        Args:
+            comparison_rows: List of comparison row dictionaries (with 'date' field)
+            network_data: Optional dictionary with network fetch results
+            threshold: Revenue delta threshold percentage (default 10%)
+            min_revenue: Minimum revenue to check threshold (default $25)
+            network_key_resolver: Optional function to resolve network display name to fetcher key
+            
+        Returns:
+            True if sent successfully, False otherwise
+        """
+        if not comparison_rows:
+            return False
+        
+        # Get date range from comparison rows
+        dates = sorted(set(row.get('date', '') for row in comparison_rows if row.get('date')))
+        if not dates:
+            # Fallback to single-day report
+            return self.send_comparison_report(
+                comparison_rows, 
+                self._calculate_totals_from_rows(comparison_rows),
+                datetime.now(),
+                network_data, threshold, min_revenue, network_key_resolver
+            )
+        
+        date_start = dates[0]
+        date_end = dates[-1]
+        num_days = len(dates)
+        
+        # Calculate aggregated totals by network
+        network_totals = {}
+        for row in comparison_rows:
+            network = row.get('network', 'Unknown')
+            if network not in network_totals:
+                network_totals[network] = {
+                    'max_revenue': 0, 'network_revenue': 0,
+                    'max_impressions': 0, 'network_impressions': 0,
+                    'dates': set(), 'rows': [],
+                    'filtered_rows': []  # Rows exceeding threshold
+                }
+            
+            network_totals[network]['max_revenue'] += row.get('max_revenue', 0)
+            network_totals[network]['network_revenue'] += row.get('network_revenue', 0)
+            network_totals[network]['max_impressions'] += row.get('max_impressions', 0)
+            network_totals[network]['network_impressions'] += row.get('network_impressions', 0)
+            network_totals[network]['dates'].add(row.get('date', ''))
+            network_totals[network]['rows'].append(row)
+            
+            # Check if this row exceeds threshold
+            max_rev = row.get('max_revenue', 0)
+            if max_rev >= min_revenue:
+                rev_delta_value = parse_delta_percentage(row.get('rev_delta', '0%'))
+                if abs(rev_delta_value) > threshold:
+                    network_totals[network]['filtered_rows'].append(row)
+        
+        # Calculate overall totals
+        overall_max_rev = sum(n['max_revenue'] for n in network_totals.values())
+        overall_net_rev = sum(n['network_revenue'] for n in network_totals.values())
+        overall_max_imps = sum(n['max_impressions'] for n in network_totals.values())
+        overall_net_imps = sum(n['network_impressions'] for n in network_totals.values())
+        
+        overall_rev_delta = ((overall_net_rev - overall_max_rev) / overall_max_rev * 100) if overall_max_rev > 0 else 0
+        overall_imp_delta = ((overall_net_imps - overall_max_imps) / overall_max_imps * 100) if overall_max_imps > 0 else 0
+        
+        # Check for failed networks
+        failed_networks = network_data.get('_failed_networks', []) if network_data else []
+        
+        # Count rows exceeding threshold
+        total_filtered = sum(len(n['filtered_rows']) for n in network_totals.values())
+        total_rows = len(comparison_rows)
+        
+        blocks = []
+        now_utc = datetime.now(timezone.utc)
+        
+        # Header based on whether threshold was exceeded
+        if total_filtered > 0 or failed_networks:
+            header_text = "⚠️ 7-Day Network Comparison - Threshold Aşıldı" if total_filtered > 0 else "⚠️ 7-Day Network Comparison - Eksik Veri"
+        else:
+            header_text = "✅ 7-Day Network Comparison - All Normal"
+        
+        blocks.append({
+            "type": "header",
+            "text": {"type": "plain_text", "text": header_text, "emoji": True}
+        })
+        
+        # Context with date range and summary
+        context_msg = f"📅 *Date Range:* {date_start} → {date_end} ({num_days} days) | "
+        context_msg += f"📅 *Generated:* {now_utc.strftime('%Y-%m-%d %H:%M:%S')} UTC"
+        
+        if total_filtered > 0:
+            context_msg += f" | ⚠️ *{total_filtered}/{total_rows}* satır threshold (±{threshold}%) aştı"
+        
+        if failed_networks:
+            context_msg += f" | 🚨 *Eksik:* {', '.join(failed_networks)}"
+        
+        blocks.append({
+            "type": "context",
+            "elements": [{"type": "mrkdwn", "text": context_msg}]
+        })
+        
+        blocks.append({"type": "divider"})
+        
+        # Overall summary
+        summary_msg = f"*📊 7-Gün Toplam ({num_days} gün)*\n"
+        summary_msg += f"💰 Revenue: MAX ${overall_max_rev:,.2f} → Network ${overall_net_rev:,.2f} ({overall_rev_delta:+.1f}%)\n"
+        summary_msg += f"📈 Impressions: {overall_max_imps:,} → {overall_net_imps:,} ({overall_imp_delta:+.1f}%)"
+        
+        blocks.append({
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": summary_msg}
+        })
+        
+        blocks.append({"type": "divider"})
+        
+        # Per-network summary (sorted by revenue delta)
+        sorted_networks = sorted(
+            network_totals.items(),
+            key=lambda x: abs((x[1]['network_revenue'] - x[1]['max_revenue']) / x[1]['max_revenue'] * 100) if x[1]['max_revenue'] > 0 else 0,
+            reverse=True
+        )
+        
+        network_lines = []
+        for network_name, totals in sorted_networks:
+            max_rev = totals['max_revenue']
+            net_rev = totals['network_revenue']
+            max_imps = totals['max_impressions']
+            net_imps = totals['network_impressions']
+            num_dates = len(totals['dates'])
+            filtered_count = len(totals['filtered_rows'])
+            total_count = len(totals['rows'])
+            
+            rev_delta = ((net_rev - max_rev) / max_rev * 100) if max_rev > 0 else 0
+            imp_delta = ((net_imps - max_imps) / max_imps * 100) if max_imps > 0 else 0
+            
+            # Get icon
+            icon = '📡'
+            network_enum = NetworkName.from_api_name(network_name)
+            if network_enum:
+                icon = network_enum.icon
+            else:
+                icon = self.NETWORK_ICONS.get(network_name.upper().replace(' ', '_'), '📡')
+            
+            # Status indicator
+            status = "🔴" if abs(rev_delta) > threshold else "🟢"
+            
+            # Build line
+            line = f"{status} {icon} *{network_name}* ({num_dates}d"
+            if filtered_count > 0:
+                line += f", {filtered_count}/{total_count} threshold aştı"
+            line += f")\n"
+            line += f"    💰 ${max_rev:,.2f} → ${net_rev:,.2f} ({rev_delta:+.1f}%) | 📈 {max_imps:,} → {net_imps:,} ({imp_delta:+.1f}%)"
+            
+            network_lines.append(line)
+        
+        # Add networks in chunks to avoid message length limits
+        network_text = "\n".join(network_lines)
+        blocks.append({
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": f"*📡 Network Özeti ({len(network_totals)} network):*\n{network_text}"}
+        })
+        
+        # Add failed networks warning at the end
+        if failed_networks:
+            blocks.append({"type": "divider"})
+            blocks.append({
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"🚨 *UYARI: {len(failed_networks)} network'ten veri alınamadı!*\n" +
+                            f"Eksik: *{', '.join(failed_networks)}*\n" +
+                            f"_Token expire olmuş veya API hatası olabilir. Kontrol edin._"
+                }
+            })
+        
+        payload = {"blocks": blocks}
+        if self.channel:
+            payload["channel"] = self.channel
+        
+        return self._send_to_slack(payload)
+
+    def _aggregate_rows_for_display(self, rows: List[Dict]) -> List[Dict]:
+        """
+        Aggregate multi-day rows by network/app/ad_type for display.
+        Combines all days into single rows with summed values.
+        """
+        aggregated = {}
+        
+        for row in rows:
+            key = (row.get('network', ''), row.get('application', ''), row.get('ad_type', ''))
+            
+            if key not in aggregated:
+                aggregated[key] = {
+                    'network': row.get('network', ''),
+                    'application': row.get('application', ''),
+                    'ad_type': row.get('ad_type', ''),
+                    'max_impressions': 0,
+                    'network_impressions': 0,
+                    'max_revenue': 0,
+                    'network_revenue': 0,
+                    'dates': []
+                }
+            
+            aggregated[key]['max_impressions'] += row.get('max_impressions', 0)
+            aggregated[key]['network_impressions'] += row.get('network_impressions', 0)
+            aggregated[key]['max_revenue'] += row.get('max_revenue', 0)
+            aggregated[key]['network_revenue'] += row.get('network_revenue', 0)
+            if row.get('date'):
+                aggregated[key]['dates'].append(row.get('date'))
+        
+        # Calculate deltas and eCPM for aggregated rows
+        result = []
+        for key, agg in aggregated.items():
+            max_imps = agg['max_impressions']
+            net_imps = agg['network_impressions']
+            max_rev = agg['max_revenue']
+            net_rev = agg['network_revenue']
+            
+            # Calculate eCPM (revenue per 1000 impressions)
+            max_ecpm = (max_rev / max_imps * 1000) if max_imps > 0 else 0
+            net_ecpm = (net_rev / net_imps * 1000) if net_imps > 0 else 0
+            
+            # Calculate deltas
+            imp_delta = f"{((net_imps - max_imps) / max_imps * 100):+.1f}%" if max_imps > 0 else "0.0%"
+            rev_delta = f"{((net_rev - max_rev) / max_rev * 100):+.1f}%" if max_rev > 0 else "0.0%"
+            cpm_delta = f"{((net_ecpm - max_ecpm) / max_ecpm * 100):+.1f}%" if max_ecpm > 0 else "0.0%"
+            
+            result.append({
+                'network': agg['network'],
+                'application': agg['application'],
+                'ad_type': agg['ad_type'],
+                'max_impressions': max_imps,
+                'network_impressions': net_imps,
+                'imp_delta': imp_delta,
+                'max_revenue': max_rev,
+                'network_revenue': net_rev,
+                'rev_delta': rev_delta,
+                'max_ecpm': max_ecpm,
+                'network_ecpm': net_ecpm,
+                'cpm_delta': cpm_delta,
+                'num_days': len(set(agg['dates']))
+            })
+        
+        # Sort by network, application, ad_type
+        result.sort(key=lambda x: (x['network'], x['application'], x['ad_type']))
+        
+        return result
+
+    def _calculate_totals_from_rows(self, comparison_rows: List[Dict]) -> Dict:
+        """Calculate totals from comparison rows."""
+        return {
+            'max_revenue': sum(r.get('max_revenue', 0) for r in comparison_rows),
+            'network_revenue': sum(r.get('network_revenue', 0) for r in comparison_rows),
+            'max_impressions': sum(r.get('max_impressions', 0) for r in comparison_rows),
+            'network_impressions': sum(r.get('network_impressions', 0) for r in comparison_rows),
+        }
+
     def _build_all_normal_blocks(
         self, totals: Dict, end_date: datetime, now_utc: datetime,
         threshold: float, min_revenue: float, total_rows: int,
@@ -221,6 +489,16 @@ class SlackNotifier:
         """Build Slack blocks for 'threshold exceeded' message."""
         blocks = []
         
+        # Check if multi-day data (aggregate by network/app/ad_type)
+        original_rows = comparison_rows.copy()
+        dates = sorted(set(row.get('date', '') for row in original_rows if row.get('date')))
+        is_multi_day = len(dates) > 1
+        
+        # Aggregate rows by network/app/ad_type if multi-day
+        if is_multi_day:
+            filtered_rows = self._aggregate_rows_for_display(filtered_rows)
+            comparison_rows = self._aggregate_rows_for_display(comparison_rows)
+        
         # Group filtered rows by network
         networks = {}
         for row in filtered_rows:
@@ -239,8 +517,13 @@ class SlackNotifier:
             "text": {"type": "plain_text", "text": "⚠️ Network Comparison Report - Threshold Aşıldı", "emoji": True}
         })
         
-        # Context with summary
-        context_msg = f"📅 *Report Date:* {end_date.strftime('%Y-%m-%d')} | 📅 *Generated:* {now_utc.strftime('%Y-%m-%d %H:%M:%S')} UTC | "
+        # Context with summary - show date range for multi-day
+        if is_multi_day:
+            date_range_str = f"{dates[0]} → {dates[-1]} ({len(dates)} gün)"
+            context_msg = f"📅 *Date Range:* {date_range_str} | 📅 *Generated:* {now_utc.strftime('%Y-%m-%d %H:%M:%S')} UTC | "
+        else:
+            context_msg = f"📅 *Report Date:* {end_date.strftime('%Y-%m-%d')} | 📅 *Generated:* {now_utc.strftime('%Y-%m-%d %H:%M:%S')} UTC | "
+        
         if low_revenue_rows > 0:
             context_msg += f"⚠️ *{filtered_count}/{checked_rows}* satır threshold (±{threshold}%) aştı ({low_revenue_rows} satır <${min_revenue:.0f} revenue) | "
         else:

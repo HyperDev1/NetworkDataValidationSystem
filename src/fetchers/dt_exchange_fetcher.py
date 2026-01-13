@@ -168,6 +168,7 @@ class DTExchangeFetcher(NetworkDataFetcher):
                 "Revenue (USD)",
             ],
             "splits": [
+                "Date",
                 "Device OS",
                 "Placement Type",
             ],
@@ -279,15 +280,17 @@ class DTExchangeFetcher(NetworkDataFetcher):
         self, 
         report_data: List[Dict[str, Any]],
         ad_data: Dict,
-        platform_data: Dict
+        platform_data: Dict,
+        daily_data: Dict
     ) -> tuple:
         """
-        Process report data and aggregate by platform.
+        Process report data and aggregate by platform with daily breakdown.
         
         Args:
             report_data: List of report rows from CSV
             ad_data: Ad data dict to populate
             platform_data: Platform data dict to populate
+            daily_data: Daily breakdown dict to populate
             
         Returns:
             Tuple of (total_revenue, total_impressions)
@@ -298,6 +301,11 @@ class DTExchangeFetcher(NetworkDataFetcher):
         for row in report_data:
             if not isinstance(row, dict):
                 continue
+            
+            # Get date from "Date" column (format: YYYY-MM-DD)
+            date_key = row.get('Date', '')
+            if not date_key:
+                date_key = 'unknown'
             
             # Get platform from "Device OS" column
             platform_raw = row.get('Device OS', '')
@@ -324,6 +332,17 @@ class DTExchangeFetcher(NetworkDataFetcher):
                 platform, ad_type,
                 rev, imps
             )
+            
+            # Accumulate daily breakdown
+            if date_key not in daily_data:
+                daily_data[date_key] = {}
+            if platform.value not in daily_data[date_key]:
+                daily_data[date_key][platform.value] = {}
+            if ad_type.value not in daily_data[date_key][platform.value]:
+                daily_data[date_key][platform.value][ad_type.value] = {'revenue': 0.0, 'impressions': 0}
+            
+            daily_data[date_key][platform.value][ad_type.value]['revenue'] += rev
+            daily_data[date_key][platform.value][ad_type.value]['impressions'] += imps
         
         return total_revenue, total_impressions
     
@@ -336,7 +355,7 @@ class DTExchangeFetcher(NetworkDataFetcher):
             end_date: End date for data fetch
             
         Returns:
-            FetchResult containing revenue and impressions data
+            FetchResult containing revenue and impressions data with daily breakdown
         """
         # Format dates as YYYY-MM-DD
         start_str = start_date.strftime('%Y-%m-%d')
@@ -345,6 +364,9 @@ class DTExchangeFetcher(NetworkDataFetcher):
         # Initialize data structures using base class helpers
         ad_data = self._init_ad_data()
         platform_data = self._init_platform_data()
+        
+        # Daily breakdown data: {date_str: {platform: {ad_type: {revenue, impressions}}}}
+        daily_data = {}
         
         # Request async report
         report_url = await self._request_report(start_str, end_str)
@@ -357,7 +379,7 @@ class DTExchangeFetcher(NetworkDataFetcher):
         
         # Process and aggregate data
         total_revenue, total_impressions = self._process_report_data(
-            report_data, ad_data, platform_data
+            report_data, ad_data, platform_data, daily_data
         )
         
         # Build result using base class helper
@@ -368,6 +390,9 @@ class DTExchangeFetcher(NetworkDataFetcher):
             ad_data=ad_data,
             platform_data=platform_data
         )
+        
+        # Add daily breakdown data for 7-day comparison
+        result['daily_data'] = daily_data
         
         # Finalize eCPM calculations
         self._finalize_ecpm(result, ad_data, platform_data)

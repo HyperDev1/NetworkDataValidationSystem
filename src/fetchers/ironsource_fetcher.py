@@ -94,7 +94,8 @@ class IronSourceFetcher(NetworkDataFetcher):
         start_date: str,
         end_date: str,
         app_keys: List[str],
-        platform: Platform
+        platform: Platform,
+        daily_data: Dict = None
     ) -> Dict[str, Any]:
         """
         Fetch data for a specific platform's app keys.
@@ -104,6 +105,7 @@ class IronSourceFetcher(NetworkDataFetcher):
             end_date: End date in YYYY-MM-DD format
             app_keys: List of app keys for this platform
             platform: Platform enum
+            daily_data: Optional dict to accumulate daily breakdown data
             
         Returns:
             Platform data dictionary
@@ -169,6 +171,15 @@ class IronSourceFetcher(NetworkDataFetcher):
                 continue
             
             ad_key = ad_type.value
+            
+            # Get date from item level (IronSource returns date at item level, not in metrics)
+            item_date = item.get('date', '')
+            if item_date:
+                # Normalize date to YYYY-MM-DD format (strip time if present)
+                item_date = str(item_date).split(' ')[0]
+            else:
+                item_date = start_date if isinstance(start_date, str) else start_date.strftime('%Y-%m-%d')
+            
             metrics_list = item.get('data', [])
             
             for metrics in metrics_list:
@@ -194,6 +205,18 @@ class IronSourceFetcher(NetworkDataFetcher):
                 platform_data['ad_data'][ad_key]['clicks'] += clks
                 platform_data['ad_data'][ad_key]['requests'] += reqs
                 platform_data['ad_data'][ad_key]['fills'] += fls
+                
+                # Accumulate daily breakdown if daily_data is provided
+                if daily_data is not None:
+                    if item_date not in daily_data:
+                        daily_data[item_date] = {}
+                    if platform.value not in daily_data[item_date]:
+                        daily_data[item_date][platform.value] = {}
+                    if ad_key not in daily_data[item_date][platform.value]:
+                        daily_data[item_date][platform.value][ad_key] = {'revenue': 0.0, 'impressions': 0}
+                    
+                    daily_data[item_date][platform.value][ad_key]['revenue'] += rev
+                    daily_data[item_date][platform.value][ad_key]['impressions'] += imps
         
         # Calculate eCPMs
         platform_data['ecpm'] = self._calculate_ecpm(platform_data['revenue'], platform_data['impressions'])
@@ -221,6 +244,9 @@ class IronSourceFetcher(NetworkDataFetcher):
         # Initialize platform data
         platform_data = self._create_extended_platform_data()
         
+        # Daily breakdown data: {date_str: {platform: {ad_type: {revenue, impressions}}}}
+        daily_data = {}
+        
         total_revenue = 0.0
         total_impressions = 0
         total_clicks = 0
@@ -230,7 +256,7 @@ class IronSourceFetcher(NetworkDataFetcher):
         # Fetch data for Android apps
         if self.android_app_keys:
             android_data = await self._fetch_platform_data(
-                start_str, end_str, self.android_app_keys, Platform.ANDROID
+                start_str, end_str, self.android_app_keys, Platform.ANDROID, daily_data
             )
             platform_data[Platform.ANDROID.value] = android_data
             
@@ -243,7 +269,7 @@ class IronSourceFetcher(NetworkDataFetcher):
         # Fetch data for iOS apps
         if self.ios_app_keys:
             ios_data = await self._fetch_platform_data(
-                start_str, end_str, self.ios_app_keys, Platform.IOS
+                start_str, end_str, self.ios_app_keys, Platform.IOS, daily_data
             )
             platform_data[Platform.IOS.value] = ios_data
             
@@ -263,6 +289,9 @@ class IronSourceFetcher(NetworkDataFetcher):
             fills=total_fills,
             clicks=total_clicks
         )
+        
+        # Add daily breakdown data for 7-day comparison
+        result['daily_data'] = daily_data
         
         return result
     
