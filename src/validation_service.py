@@ -124,7 +124,7 @@ class ValidationService:
         """Initialize individual network fetchers using the FetcherFactory."""
         self.network_fetchers = FetcherFactory.create_all_fetchers(self.config)
     
-    async def run_validation(self, start_date=None, end_date=None) -> Dict[str, Any]:
+    async def run_validation(self, start_date=None, end_date=None, only_networks=None, no_slack=False) -> Dict[str, Any]:
         """
         Run network comparison report with parallel network fetching.
         
@@ -134,6 +134,9 @@ class ValidationService:
         Args:
             start_date: Optional start date for backfill (default: yesterday)
             end_date: Optional end date for backfill (default: yesterday)
+            only_networks: Optional list of network keys to fetch (e.g., ['dt_exchange', 'meta'])
+                          If None, fetches all configured networks.
+            no_slack: If True, skip sending report to Slack
         """
         from datetime import timezone
         
@@ -202,7 +205,8 @@ class ValidationService:
         
         # Step 1b: Fetch separate MAX data for Meta using T-2 dates
         max_rows_meta = []
-        if 'meta' in self.network_fetchers:
+        should_fetch_meta = 'meta' in self.network_fetchers and (not only_networks or 'meta' in only_networks)
+        if should_fetch_meta:
             try:
                 print(f"   📥 Fetching MAX data for Meta (T-{meta_delay_days}: {meta_end_date.strftime('%Y-%m-%d')})...")
                 max_data_meta = await self.applovin_fetcher.fetch_data(meta_start_date, meta_end_date)
@@ -216,7 +220,8 @@ class ValidationService:
         
         # Step 1c: Fetch separate MAX data for DT Exchange using T-2 dates
         max_rows_dt_exchange = []
-        if 'dt_exchange' in self.network_fetchers and dt_exchange_delay_days > 0:
+        should_fetch_dt = 'dt_exchange' in self.network_fetchers and dt_exchange_delay_days > 0 and (not only_networks or 'dt_exchange' in only_networks)
+        if should_fetch_dt:
             try:
                 print(f"   📥 Fetching MAX data for DT Exchange (T-{dt_exchange_delay_days}: {dt_exchange_end_date.strftime('%Y-%m-%d')})...")
                 max_data_dt = await self.applovin_fetcher.fetch_data(dt_exchange_start_date, dt_exchange_end_date)
@@ -229,12 +234,14 @@ class ValidationService:
                 max_rows_dt_exchange = []
         
         # Step 2: Fetch data from all networks IN PARALLEL (main optimization)
-        print(f"\n📊 Step 2: Fetching data from {len(self.network_fetchers)} networks in parallel...")
+        networks_to_fetch = only_networks if only_networks else list(self.network_fetchers.keys())
+        print(f"\n📊 Step 2: Fetching data from {len(networks_to_fetch)} networks in parallel...")
         
         network_data = await self._fetch_all_networks_parallel(
             start_date, end_date, 
             meta_start_date, meta_end_date,
-            dt_exchange_start_date, dt_exchange_end_date
+            dt_exchange_start_date, dt_exchange_end_date,
+            only_networks=only_networks
         )
         
         # Step 3: Merge MAX data with Network data
@@ -277,20 +284,46 @@ class ValidationService:
             print(table)
             
             # Send to Slack (7-day report in single message, old style format)
-            if self.notifier:
+            if self.notifier and not no_slack:
                 print("\n📤 Sending 7-day report to Slack...")
                 threshold = self.config.get_slack_revenue_delta_threshold()
                 min_revenue = self.config.get_slack_min_revenue_for_alerts()
                 
+                # Filter rows to only include networks that were fetched
+                if only_networks:
+                    # Get network display names for filtering
+                    network_keys_lower = {n.lower() for n in only_networks}
+                    slack_rows = []
+                    for row in comparison_rows:
+                        network_key = self._get_network_key(row.get('network', ''))
+                        if network_key and network_key.lower() in network_keys_lower:
+                            slack_rows.append(row)
+                    # Also filter totals for the filtered networks
+                    slack_totals = self._calculate_totals(slack_rows)
+                    print(f"   🎯 Filtering Slack report to networks: {', '.join(only_networks)} ({len(slack_rows)} rows)")
+                else:
+                    slack_rows = comparison_rows
+                    slack_totals = totals
+                
                 # Get date range for report
-                dates = sorted(set(row.get('date', '') for row in comparison_rows if row.get('date')))
+                dates = sorted(set(row.get('date', '') for row in slack_rows if row.get('date')))
                 end_date = datetime.strptime(dates[-1], '%Y-%m-%d') if dates else datetime.now()
                 
+                # Filter network_data to only include fetched networks
+                if only_networks:
+                    network_keys_lower = {n.lower() for n in only_networks}
+                    slack_network_data = {
+                        k: v for k, v in network_data.items() 
+                        if k.lower() in network_keys_lower
+                    }
+                else:
+                    slack_network_data = network_data
+                
                 success = self.notifier.send_comparison_report(
-                    comparison_rows=comparison_rows,
-                    totals=totals,
+                    comparison_rows=slack_rows,
+                    totals=slack_totals,
                     end_date=end_date,
-                    network_data=network_data,
+                    network_data=slack_network_data,
                     threshold=threshold,
                     min_revenue=min_revenue,
                     network_key_resolver=self._get_network_key
@@ -306,7 +339,10 @@ class ValidationService:
             if self.gcs_exporter:
                 print("\n📤 Exporting multi-day data to GCS...")
                 try:
-                    gcs_files = self.gcs_exporter.export_multi_day(comparison_rows)
+                    gcs_files = self.gcs_exporter.export_multi_day(
+                        comparison_rows, 
+                        only_networks=only_networks
+                    )
                     if gcs_files:
                         logger.info(f"Exported {len(comparison_rows)} comparison rows to GCS ({len(gcs_files)} files)")
                         print(f"   ✅ Exported {len(comparison_rows)} comparison rows to GCS ({len(gcs_files)} files)")
@@ -335,7 +371,8 @@ class ValidationService:
         meta_start_date: datetime,
         meta_end_date: datetime,
         dt_exchange_start_date: datetime = None,
-        dt_exchange_end_date: datetime = None
+        dt_exchange_end_date: datetime = None,
+        only_networks: list = None
     ) -> Dict[str, Any]:
         """
         Fetch data from all configured networks in parallel using asyncio.gather.
@@ -351,6 +388,7 @@ class ValidationService:
             meta_end_date: End date for Meta (T-2)
             dt_exchange_start_date: Start date for DT Exchange (T-2)
             dt_exchange_end_date: End date for DT Exchange (T-2)
+            only_networks: Optional list of network keys to fetch (e.g., ['dt_exchange'])
             
         Returns:
             Dictionary mapping network names to their fetched data
@@ -430,10 +468,15 @@ class ValidationService:
                     except Exception:
                         pass
         
-        # Create tasks for all networks
+        # Create tasks for all networks (or filtered networks)
+        fetchers_to_use = self.network_fetchers.items()
+        if only_networks:
+            fetchers_to_use = [(n, f) for n, f in self.network_fetchers.items() if n in only_networks]
+            print(f"   🎯 Filtering to networks: {', '.join(only_networks)}")
+        
         tasks = [
             fetch_network_with_fallback(network_name, fetcher)
-            for network_name, fetcher in self.network_fetchers.items()
+            for network_name, fetcher in fetchers_to_use
         ]
         
         # Execute all tasks in parallel
@@ -478,6 +521,9 @@ class ValidationService:
         Merge MAX data with network data for comparison.
         Now supports daily matching: MAX rows have 'date' field, network_data has 'daily_data'.
         
+        IMPORTANT: All MAX data rows are included in the output for accurate Looker reporting.
+        If network data is missing, the row is still included with network values set to None.
+        
         Args:
             max_rows: MAX data rows from AppLovin (each row has date, application, network, ad_type)
             network_data: Network data from individual fetchers (includes daily_data for daily breakdown)
@@ -499,6 +545,12 @@ class ValidationService:
             # For these networks, MAX data IS the network's own data - no separate API needed
             is_applovin_network = 'applovin' in network_name.lower()
             
+            # Track whether we have network data for this row
+            has_network_data = False
+            net_revenue = None
+            net_impressions = None
+            net_ecpm = None
+            
             if is_applovin_network:
                 # Skip Applovin networks if we're doing include_networks filter (e.g., Meta-only pass)
                 # This prevents Applovin from being added twice
@@ -509,51 +561,55 @@ class ValidationService:
                 net_revenue = row.get('max_revenue', 0)
                 net_impressions = row.get('max_impressions', 0)
                 net_ecpm = row.get('max_ecpm', 0)
+                has_network_data = True
             else:
-                # Only include networks that have fetchers configured
-                if not network_key or network_key not in network_data:
-                    continue
-                
                 # Apply include/exclude filters
                 if include_networks and network_key not in include_networks:
                     continue
                 if network_key in exclude_networks:
                     continue
                 
-                net_data = network_data[network_key]
-                
-                # Try to get data from daily_data first (date-based matching)
-                daily_data = net_data.get('daily_data', {})
-                
-                if row_date and daily_data:
-                    # Daily data mode - strict date matching required
-                    if row_date not in daily_data:
-                        # Skip this row if network doesn't have data for this specific date
-                        # This prevents using aggregated totals for missing dates
-                        continue
+                # Check if we have network data for this network
+                if network_key and network_key in network_data:
+                    net_data = network_data[network_key]
                     
-                    # Use daily_data for date-specific matching
-                    date_data = daily_data[row_date]
-                    platform_data = date_data.get(platform, {})
-                    ad_data = platform_data.get(ad_type, {})
-                else:
-                    # Fallback to aggregated platform_data (legacy support - single day mode)
-                    platform_data = net_data.get('platform_data', {}).get(platform, {})
-                    ad_data = platform_data.get('ad_data', {}).get(ad_type, {})
-                
-                # Skip if no network data for this ad type
-                if ad_data.get('impressions', 0) == 0:
-                    continue
-                
-                net_revenue = ad_data.get('revenue', 0)
-                net_impressions = ad_data.get('impressions', 0)
-                # Calculate eCPM from revenue and impressions (API may not provide it)
-                net_ecpm = (net_revenue / net_impressions * 1000) if net_impressions > 0 else 0
+                    # Try to get data from daily_data first (date-based matching)
+                    daily_data = net_data.get('daily_data', {})
+                    
+                    if row_date and daily_data:
+                        # Daily data mode - check if date exists
+                        if row_date in daily_data:
+                            # Use daily_data for date-specific matching
+                            date_data = daily_data[row_date]
+                            platform_data = date_data.get(platform, {})
+                            ad_data = platform_data.get(ad_type, {})
+                            
+                            if ad_data.get('impressions', 0) > 0:
+                                net_revenue = ad_data.get('revenue', 0)
+                                net_impressions = ad_data.get('impressions', 0)
+                                net_ecpm = (net_revenue / net_impressions * 1000) if net_impressions > 0 else 0
+                                has_network_data = True
+                    else:
+                        # Fallback to aggregated platform_data (legacy support - single day mode)
+                        platform_data = net_data.get('platform_data', {}).get(platform, {})
+                        ad_data = platform_data.get('ad_data', {}).get(ad_type, {})
+                        
+                        if ad_data.get('impressions', 0) > 0:
+                            net_revenue = ad_data.get('revenue', 0)
+                            net_impressions = ad_data.get('impressions', 0)
+                            net_ecpm = (net_revenue / net_impressions * 1000) if net_impressions > 0 else 0
+                            has_network_data = True
             
-            # Calculate deltas
-            imp_delta = self._calculate_delta(row['max_impressions'], net_impressions)
-            rev_delta = self._calculate_delta(row['max_revenue'], net_revenue)
-            cpm_delta = self._calculate_delta(row['max_ecpm'], net_ecpm)
+            # Calculate deltas (only if we have network data)
+            if has_network_data:
+                imp_delta = self._calculate_delta(row['max_impressions'], net_impressions)
+                rev_delta = self._calculate_delta(row['max_revenue'], net_revenue)
+                cpm_delta = self._calculate_delta(row['max_ecpm'], net_ecpm)
+            else:
+                # No network data - deltas are N/A
+                imp_delta = None
+                rev_delta = None
+                cpm_delta = None
             
             # Get display name for network (convert Vungle -> Liftoff etc.)
             display_network = self.NETWORK_DISPLAY_NAME_MAP.get(row['network'], row['network'])
@@ -572,6 +628,7 @@ class ValidationService:
                 'max_ecpm': row['max_ecpm'],
                 'network_ecpm': net_ecpm,
                 'cpm_delta': cpm_delta,
+                'has_network_data': has_network_data,  # True if network API data exists
             })
         
         # Sort by date, then network, then application
@@ -594,9 +651,9 @@ class ValidationService:
         """Calculate totals from comparison rows."""
         totals = {
             'max_revenue': sum(r['max_revenue'] for r in comparison_rows),
-            'network_revenue': sum(r['network_revenue'] for r in comparison_rows),
+            'network_revenue': sum(r['network_revenue'] or 0 for r in comparison_rows),
             'max_impressions': sum(r['max_impressions'] for r in comparison_rows),
-            'network_impressions': sum(r['network_impressions'] for r in comparison_rows),
+            'network_impressions': sum(r['network_impressions'] or 0 for r in comparison_rows),
         }
         return totals
     
@@ -609,19 +666,34 @@ class ValidationService:
         lines.append("─" * 180)
         
         for row in comparison_rows:
+            # Handle None values for network data
+            net_imps = row['network_impressions']
+            net_rev = row['network_revenue']
+            net_ecpm = row['network_ecpm']
+            imp_delta = row['imp_delta']
+            rev_delta = row['rev_delta']
+            cpm_delta = row['cpm_delta']
+            
+            net_imps_str = f"{net_imps:>10,}" if net_imps is not None else f"{'N/A':>10}"
+            net_rev_str = f"${net_rev:>9,.2f}" if net_rev is not None else f"{'N/A':>10}"
+            net_ecpm_str = f"${net_ecpm:>7,.2f}" if net_ecpm is not None else f"{'N/A':>8}"
+            imp_delta_str = f"{imp_delta:>8}" if imp_delta is not None else f"{'N/A':>8}"
+            rev_delta_str = f"{rev_delta:>8}" if rev_delta is not None else f"{'N/A':>8}"
+            cpm_delta_str = f"{cpm_delta:>8}" if cpm_delta is not None else f"{'N/A':>8}"
+            
             lines.append(
                 f"{row['application']:<28} │ "
                 f"{row['network']:<18} │ "
                 f"{row['ad_type']:<12} │ "
                 f"{row['max_impressions']:>10,} │ "
-                f"{row['network_impressions']:>10,} │ "
-                f"{row['imp_delta']:>8} │ "
+                f"{net_imps_str} │ "
+                f"{imp_delta_str} │ "
                 f"${row['max_revenue']:>9,.2f} │ "
-                f"${row['network_revenue']:>9,.2f} │ "
-                f"{row['rev_delta']:>8} │ "
+                f"{net_rev_str} │ "
+                f"{rev_delta_str} │ "
                 f"${row['max_ecpm']:>7,.2f} │ "
-                f"${row['network_ecpm']:>7,.2f} │ "
-                f"{row['cpm_delta']:>8}"
+                f"{net_ecpm_str} │ "
+                f"{cpm_delta_str}"
             )
         
         return "\n".join(lines)

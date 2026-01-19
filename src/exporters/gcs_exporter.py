@@ -2,7 +2,10 @@
 Google Cloud Storage Exporter for Network Data Validation System.
 Exports comparison data to GCS in Parquet format for BigQuery analysis.
 """
+import io
 import os
+import tempfile
+import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 from datetime import datetime
@@ -277,20 +280,109 @@ class GCSExporter:
         print(f"✅ Exported {len(comparison_rows)} rows to {file_path}")
         return created_files
     
+    def _read_existing_data_from_gcs(self, date_str: str) -> Optional[pa.Table]:
+        """
+        Read existing parquet data from GCS for a specific date.
+        
+        Args:
+            date_str: Date string in YYYY-MM-DD format
+            
+        Returns:
+            PyArrow Table with existing data, or None if no data exists
+        """
+        bucket = self._get_bucket()
+        prefix = f"{self.base_path}/dt={date_str}/"
+        
+        blobs = list(bucket.list_blobs(prefix=prefix))
+        if not blobs:
+            return None
+        
+        tables = []
+        for blob in blobs:
+            if blob.name.endswith('.parquet'):
+                try:
+                    # Download parquet file to memory
+                    content = blob.download_as_bytes()
+                    table = pq.read_table(io.BytesIO(content))
+                    tables.append(table)
+                    print(f"   📖 Read existing file: {blob.name} ({table.num_rows} rows)")
+                except Exception as e:
+                    print(f"   ⚠️  Failed to read {blob.name}: {e}")
+        
+        if not tables:
+            return None
+        
+        # Concatenate all tables
+        combined = pa.concat_tables(tables)
+        print(f"   📊 Total existing data: {combined.num_rows} rows")
+        return combined
+    
+    def _merge_tables(
+        self,
+        existing_table: Optional[pa.Table],
+        new_table: pa.Table,
+        new_networks: set
+    ) -> pa.Table:
+        """
+        Merge existing and new tables, replacing data for specified networks.
+        
+        Args:
+            existing_table: Existing data from GCS (or None)
+            new_table: New data to write
+            new_networks: Set of network names being updated
+            
+        Returns:
+            Merged PyArrow Table
+        """
+        if existing_table is None:
+            return new_table
+        
+        # Filter out rows from existing table that match networks being updated
+        # Convert to pandas for easier filtering
+        existing_df = existing_table.to_pandas()
+        new_df = new_table.to_pandas()
+        
+        # Get lowercase network names for comparison
+        new_networks_lower = {n.lower() for n in new_networks}
+        
+        # Keep rows from existing data that are NOT in the networks being updated
+        # Compare using lowercase to handle case differences
+        kept_df = existing_df[~existing_df['network'].str.lower().isin(new_networks_lower)]
+        
+        print(f"   🔄 Merging: Keeping {len(kept_df)} existing rows, adding {len(new_df)} new rows")
+        
+        if len(kept_df) == 0:
+            return new_table
+        
+        # Concatenate kept existing data with new data
+        merged_df = pd.concat([kept_df, new_df], ignore_index=True)
+        
+        # Convert back to PyArrow Table with correct schema
+        merged_table = pa.Table.from_pandas(merged_df, schema=self.SCHEMA, preserve_index=False)
+        
+        return merged_table
+    
     def export_to_gcs(
         self,
         comparison_rows: List[Dict[str, Any]],
-        report_date: datetime
+        report_date: datetime,
+        only_networks: Optional[List[str]] = None
     ) -> List[str]:
         """
         Export comparison data to Google Cloud Storage.
         
-        Automatically deletes any existing files for the same date to prevent
-        duplicate data in BigQuery external tables.
+        When only_networks is specified, performs a merge operation:
+        - Reads existing data for the date
+        - Removes rows for networks being updated
+        - Adds new data
+        - Writes merged result
+        
+        When only_networks is None, replaces all data for the date.
         
         Args:
             comparison_rows: List of comparison dictionaries
             report_date: The date the report is for
+            only_networks: Optional list of networks being updated (for merge behavior)
             
         Returns:
             List of GCS URIs for uploaded files
@@ -299,18 +391,40 @@ class GCSExporter:
             print("⚠️  No data to export")
             return []
         
-        # Delete existing files for this date to prevent duplicates
         date_str = report_date.strftime('%Y-%m-%d')
-        self._delete_existing_files_for_date(date_str)
         
-        table = self._comparison_rows_to_table(comparison_rows, report_date)
+        # If only specific networks are being updated, merge with existing data
+        if only_networks:
+            print(f"   🔗 Partial update mode: merging data for networks: {only_networks}")
+            
+            # Read existing data
+            existing_table = self._read_existing_data_from_gcs(date_str)
+            
+            # Convert new rows to table
+            new_table = self._comparison_rows_to_table(comparison_rows, report_date)
+            
+            # Get unique networks from new data
+            new_networks = set()
+            for row in comparison_rows:
+                network = row.get('network', '')
+                if network:
+                    new_networks.add(network)
+            
+            # Merge tables
+            merged_table = self._merge_tables(existing_table, new_table, new_networks)
+            table = merged_table
+        else:
+            # Full replacement mode - no merge needed
+            table = self._comparison_rows_to_table(comparison_rows, report_date)
+        
+        # Delete existing files for this date
+        self._delete_existing_files_for_date(date_str)
         
         # Generate GCS path
         timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
         blob_path = f"{self.base_path}/dt={date_str}/comparison_data_{timestamp}.parquet"
         
         # Write to temporary local file first
-        import tempfile
         with tempfile.NamedTemporaryFile(suffix='.parquet', delete=False) as tmp:
             tmp_path = tmp.name
         
@@ -323,7 +437,7 @@ class GCSExporter:
             blob.upload_from_filename(tmp_path)
             
             gcs_uri = f"gs://{self.bucket_name}/{blob_path}"
-            print(f"✅ Uploaded {len(comparison_rows)} rows to {gcs_uri}")
+            print(f"✅ Uploaded {table.num_rows} rows to {gcs_uri}")
             return [gcs_uri]
             
         finally:
@@ -415,19 +529,21 @@ class GCSExporter:
         self,
         comparison_rows: List[Dict[str, Any]],
         dry_run: bool = False,
-        output_dir: str = "./output"
+        output_dir: str = "./output",
+        only_networks: Optional[List[str]] = None
     ) -> List[str]:
         """
         Export multi-day comparison data with upsert per date partition.
         
         Groups comparison_rows by their 'date' field and exports each date 
-        to its own partition. Existing files for each date are deleted before
-        writing new data (upsert behavior).
+        to its own partition. When only_networks is specified, performs merge
+        with existing data to preserve other networks' data.
         
         Args:
             comparison_rows: List of comparison dictionaries (must have 'date' field)
             dry_run: If True, export to local files; if False, upload to GCS
             output_dir: Local directory for dry-run output
+            only_networks: Optional list of networks being updated (for merge behavior)
             
         Returns:
             List of file paths (local) or GCS URIs (upload)
@@ -444,6 +560,8 @@ class GCSExporter:
             return []
         
         print(f"📅 Exporting data for {len(rows_by_date)} dates")
+        if only_networks:
+            print(f"   🔗 Partial update mode for networks: {only_networks}")
         
         all_results = []
         for date_str, date_rows in sorted(rows_by_date.items()):
@@ -459,7 +577,7 @@ class GCSExporter:
             if dry_run:
                 results = self.export_to_local(date_rows, report_date, output_dir)
             else:
-                results = self.export_to_gcs(date_rows, report_date)
+                results = self.export_to_gcs(date_rows, report_date, only_networks=only_networks)
             
             all_results.extend(results)
         
