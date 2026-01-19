@@ -569,9 +569,13 @@ class SlackNotifier:
                     net_date_range = network_data[network_key].get('date_range', {})
                     net_end = net_date_range.get('end', '')
                     if net_end:
-                        if network_key == 'meta':
-                            network_date_label = f" (📅 {net_end}, T-3)"
-                        else:
+                        # Calculate T-X dynamically based on actual data date
+                        try:
+                            net_end_date = datetime.strptime(net_end, '%Y-%m-%d')
+                            today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+                            days_ago = (today - net_end_date).days
+                            network_date_label = f" (📅 {net_end}, T-{days_ago})"
+                        except (ValueError, TypeError):
                             network_date_label = f" (📅 {net_end})"
             
             # Network section header

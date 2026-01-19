@@ -1,7 +1,14 @@
 ﻿"""
 Test script for Meta Audience Network fetcher.
-Tests the T-3 daily data fetching approach for stable revenue data.
+Tests the daily data fetching approach.
+
+Usage:
+    python test_meta.py                     # Test default (last 7 days)
+    python test_meta.py --date 2026-01-16   # Test specific date
+    python test_meta.py --range 2026-01-10 2026-01-18  # Test date range
 """
+import argparse
+import asyncio
 import requests
 from datetime import datetime, timedelta, timezone
 from src.config import Config
@@ -12,7 +19,7 @@ def check_token_info(access_token: str):
     """Check token info and permissions."""
     print("\n🔍 Checking token info...")
     
-    url = "https://graph.facebook.com/v18.0/me"
+    url = "https://graph.facebook.com/v24.0/me"
     params = {"access_token": access_token, "fields": "id,name"}
     
     response = requests.get(url, params=params)
@@ -24,10 +31,10 @@ def check_token_info(access_token: str):
         print(f"   ❌ Token check failed: {response.text[:200]}")
 
 
-def test_meta_fetcher():
-    """Test Meta Audience Network fetcher with T-3 daily mode."""
+def test_meta_fetcher(start_date: datetime = None, end_date: datetime = None):
+    """Test Meta Audience Network fetcher with date range."""
     print("=" * 60)
-    print("META AUDIENCE NETWORK FETCHER TEST (T-3 Daily Mode)")
+    print("META AUDIENCE NETWORK FETCHER TEST")
     print("=" * 60)
     
     # Load config
@@ -67,27 +74,75 @@ def test_meta_fetcher():
         business_id=business_id
     )
     print(f"   ✅ Network name: {fetcher.get_network_name()}")
-    print(f"   ✅ Data delay: {fetcher.DATA_DELAY_DAYS} days (T-3)")
     
-    # Meta T-3 daily mode - request data from 3 days ago
-    # Daily data requires ~3 days to stabilize per Meta API docs
-    now_utc = datetime.now(timezone.utc)
-    target_date = now_utc.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=3)
+    # Calculate date range
+    now_utc = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
     
-    print(f"\n📅 Requesting Meta daily data for: {target_date.strftime('%Y-%m-%d')}")
-    print(f"   (T-3: 3 days ago - using daily aggregation for stable data)")
+    if end_date is None:
+        end_date = now_utc
+
+    if start_date is None:
+        start_date = end_date - timedelta(days=7)
+   
     
-    # Fetch daily data
-    print(f"\n📥 Fetching daily data...")
+    print(f"\n📅 Requesting Meta data:")
+    print(f"   Start date: {start_date.strftime('%Y-%m-%d')}")
+    print(f"   End date: {end_date.strftime('%Y-%m-%d')}")
+    print(f"   Today: {now_utc.strftime('%Y-%m-%d')}")
+    print(f"   Days from today: T-{(now_utc - end_date).days} to T-{(now_utc - start_date).days}")
+    
+    # Fetch data
+    print(f"\n📥 Fetching data...")
     try:
-        data = fetcher.fetch_data(target_date, target_date)
+        data = asyncio.run(fetcher.fetch_data(start_date, end_date))
         
         print(f"\n✅ SUCCESS!")
         print(f"\n📊 Results:")
         print(f"   Total Revenue: ${data['revenue']:.2f}")
         print(f"   Total Impressions: {data['impressions']:,}")
         print(f"   Total eCPM: ${data['ecpm']:.2f}")
-        print(f"   Date Range: {data.get('date_range', {})}")
+        
+        # Daily breakdown
+        daily_data = data.get('daily_data', {})
+        if daily_data:
+            print(f"\n📅 Daily Breakdown ({len(daily_data)} days with data):")
+            for date_key in sorted(daily_data.keys()):
+                day_data = daily_data[date_key]
+                total_rev = sum(
+                    ad.get('revenue', 0) 
+                    for plat in day_data.values() 
+                    for ad in plat.values()
+                )
+                total_imp = sum(
+                    ad.get('impressions', 0) 
+                    for plat in day_data.values() 
+                    for ad in plat.values()
+                )
+                print(f"   {date_key}: ${total_rev:.2f} rev, {total_imp:,} imp")
+            
+            # Check which dates are missing
+            requested_dates = set()
+            current = start_date
+            while current <= end_date:
+                requested_dates.add(current.strftime('%Y-%m-%d'))
+                current += timedelta(days=1)
+            
+            received_dates = set(daily_data.keys())
+            missing_dates = requested_dates - received_dates
+            
+            if missing_dates:
+                print(f"\n⚠️ Missing dates ({len(missing_dates)}):")
+                for d in sorted(missing_dates):
+                    print(f"   - {d}")
+                
+                # Find the last available date
+                if received_dates:
+                    last_available = max(received_dates)
+                    last_available_dt = datetime.strptime(last_available, '%Y-%m-%d')
+                    delay_days = (now_utc.replace(tzinfo=None) - last_available_dt).days
+                    print(f"\n📊 Data availability:")
+                    print(f"   Last available date: {last_available}")
+                    print(f"   Actual delay: T-{delay_days} (data is {delay_days} days behind)")
         
         print(f"\n📱 Platform Breakdown:")
         for platform, pdata in data['platform_data'].items():
@@ -96,44 +151,39 @@ def test_meta_fetcher():
                 print(f"      Revenue: ${pdata['revenue']:.2f}")
                 print(f"      Impressions: {pdata['impressions']:,}")
                 print(f"      eCPM: ${pdata['ecpm']:.2f}")
-                
-                print(f"      Ad Types:")
-                for ad_type, ad_data in pdata['ad_data'].items():
-                    if ad_data['impressions'] > 0:
-                        print(f"         {ad_type}: ${ad_data['revenue']:.2f} | {ad_data['impressions']:,} imps | ${ad_data['ecpm']:.2f} eCPM")
         
     except Exception as e:
         print(f"\n❌ ERROR: {str(e)}")
         import traceback
         traceback.print_exc()
+    finally:
+        if hasattr(fetcher, 'close'):
+            asyncio.run(fetcher.close())
 
 
-def test_date_calculation():
-    """Test that T-3 date calculation is correct."""
-    print("\n" + "=" * 60)
-    print("DATE CALCULATION TEST")
-    print("=" * 60)
+def main():
+    """Main entry point with argument parsing."""
+    parser = argparse.ArgumentParser(description='Test Meta Audience Network fetcher')
+    parser.add_argument('--date', type=str, help='Single date to test (YYYY-MM-DD)')
+    parser.add_argument('--range', nargs=2, type=str, metavar=('START', 'END'),
+                        help='Date range to test (YYYY-MM-DD YYYY-MM-DD)')
     
-    now_utc = datetime.now(timezone.utc)
-    today = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
+    args = parser.parse_args()
     
-    # Standard networks use T-1
-    t1_date = today - timedelta(days=1)
+    start_date = None
+    end_date = None
     
-    # Meta uses T-3
-    t3_date = today - timedelta(days=3)
+    if args.date:
+        single_date = datetime.strptime(args.date, '%Y-%m-%d').replace(tzinfo=timezone.utc)
+        start_date = single_date
+        end_date = single_date
+    elif args.range:
+        start_date = datetime.strptime(args.range[0], '%Y-%m-%d').replace(tzinfo=timezone.utc)
+        end_date = datetime.strptime(args.range[1], '%Y-%m-%d').replace(tzinfo=timezone.utc)
     
-    print(f"\n📅 Today (UTC): {today.strftime('%Y-%m-%d')}")
-    print(f"📅 T-1 (other networks): {t1_date.strftime('%Y-%m-%d')}")
-    print(f"📅 T-3 (Meta): {t3_date.strftime('%Y-%m-%d')}")
-    
-    # Verify delay constant
-    from src.fetchers import MetaFetcher
-    assert MetaFetcher.DATA_DELAY_DAYS == 3, f"Expected DATA_DELAY_DAYS=3, got {MetaFetcher.DATA_DELAY_DAYS}"
-    print(f"\n✅ MetaFetcher.DATA_DELAY_DAYS = {MetaFetcher.DATA_DELAY_DAYS} (correct)")
+    test_meta_fetcher(start_date, end_date)
 
 
 if __name__ == "__main__":
-    test_date_calculation()
-    test_meta_fetcher()
+    main()
 
