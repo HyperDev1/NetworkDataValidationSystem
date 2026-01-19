@@ -306,9 +306,20 @@ class MetaFetcher(NetworkDataFetcher):
                 logger.debug(f"Meta entry parse error: {str(e)}")
                 continue
         
-        # Build result using base class helper
+        # Determine actual date range from daily_data
+        # Meta API may not return all requested dates
+        actual_start = start_date
+        actual_end = end_date
+        if daily_data:
+            dates_with_data = sorted(daily_data.keys())
+            if dates_with_data:
+                actual_start = datetime.strptime(dates_with_data[0], '%Y-%m-%d')
+                actual_end = datetime.strptime(dates_with_data[-1], '%Y-%m-%d')
+                logger.debug(f"Meta actual data range: {dates_with_data[0]} to {dates_with_data[-1]}")
+        
+        # Build result using base class helper with ACTUAL date range
         result = self._build_result(
-            start_date, end_date,
+            actual_start, actual_end,  # Use actual dates, not requested
             revenue=total_revenue,
             impressions=total_impressions,
             ad_data=ad_data,

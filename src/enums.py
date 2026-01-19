@@ -148,22 +148,22 @@ class NetworkName(str, Enum):
     def icon(self) -> str:
         """Return Slack emoji icon for network."""
         icon_map = {
-            NetworkName.MINTEGRAL: ":mintegral:",
-            NetworkName.UNITY: ":unity:",
-            NetworkName.ADMOB: ":google:",
-            NetworkName.IRONSOURCE: ":ironsource:",
-            NetworkName.META: ":meta:",
-            NetworkName.MOLOCO: ":moloco:",
-            NetworkName.INMOBI: ":inmobi:",
-            NetworkName.BIDMACHINE: ":bidmachine:",
-            NetworkName.LIFTOFF: ":liftoff:",
-            NetworkName.DT_EXCHANGE: ":dt_exchange:",
-            NetworkName.PANGLE: ":pangle:",
-            NetworkName.APPLOVIN: ":applovin:",
-            NetworkName.APPLOVIN_EXCHANGE: ":applovin:",
-            NetworkName.CHARTBOOST: ":chartboost:",
+            NetworkName.MINTEGRAL: "🟣",
+            NetworkName.UNITY: "🎮",
+            NetworkName.ADMOB: "🔴",
+            NetworkName.IRONSOURCE: "🟠",
+            NetworkName.META: "🔵",
+            NetworkName.MOLOCO: "🔶",
+            NetworkName.INMOBI: "🟡",
+            NetworkName.BIDMACHINE: "⚙️",
+            NetworkName.LIFTOFF: "🚀",
+            NetworkName.DT_EXCHANGE: "💠",
+            NetworkName.PANGLE: "🎯",
+            NetworkName.APPLOVIN: "🟢",
+            NetworkName.APPLOVIN_EXCHANGE: "🟢",
+            NetworkName.CHARTBOOST: "📊",
         }
-        return icon_map.get(self, ":chart_with_upwards_trend:")
+        return icon_map.get(self, "📡")
     
     @property
     def data_delay_days(self) -> int:

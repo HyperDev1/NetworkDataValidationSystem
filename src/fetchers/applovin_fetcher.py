@@ -43,9 +43,10 @@ class ApplovinFetcher(NetworkDataFetcher):
     }
     
     # Network name mapping (Applovin network names to our standard names)
+    # APPLOVIN_EXCHANGE is merged into Applovin Bidding for unified reporting
     NETWORK_NAME_MAP = {
         'APPLOVIN': 'Applovin Bidding',
-        'APPLOVIN_EXCHANGE': 'Applovin Exchange',
+        'APPLOVIN_EXCHANGE': 'Applovin Bidding',  # Merge exchange into bidding
         'APPLOVIN_NETWORK': 'Applovin Bidding',
         'ADMOB': 'Google Bidding',
         'FACEBOOK': 'Meta Bidding',
@@ -157,14 +158,19 @@ class ApplovinFetcher(NetworkDataFetcher):
         if not network:
             return 'Unknown'
         
-        # Remove common suffixes (case-insensitive)
         network_upper = network.upper()
+        
+        # First try direct mapping with full name (e.g., APPLOVIN_EXCHANGE)
+        if network_upper in self.NETWORK_NAME_MAP:
+            return self.NETWORK_NAME_MAP[network_upper]
+        
+        # Remove common suffixes for fallback matching
         network_clean = network_upper.replace('_BIDDING', '').replace(' BIDDING', '')
         network_clean = network_clean.replace('_NETWORK', '').replace(' NETWORK', '')
         network_clean = network_clean.replace('_EXCHANGE', '').replace(' EXCHANGE', '')
         network_clean = network_clean.strip()
         
-        # Direct mapping
+        # Try mapping with cleaned name
         if network_clean in self.NETWORK_NAME_MAP:
             return self.NETWORK_NAME_MAP[network_clean]
         
