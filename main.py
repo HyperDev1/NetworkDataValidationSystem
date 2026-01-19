@@ -13,6 +13,7 @@ CLI Arguments:
     --end_date YYYY-MM-DD   : End date (default: UTC now - 1)
     --no_slack_message      : Skip Slack notification
     --no_gcs_export         : Skip GCS export
+    --schedule              : Run as scheduled service (continuous loop)
 """
 import sys
 import io
@@ -755,7 +756,114 @@ Examples:
         help='Skip GCS export'
     )
     
+    parser.add_argument(
+        '--schedule',
+        action='store_true',
+        help='Run as scheduled service (continuous loop)'
+    )
+    
     return parser.parse_args()
+
+
+def run_single_validation(config: Config, args) -> bool:
+    """Run a single validation cycle."""
+    # Calculate date range
+    now_utc = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    
+    # End date: default to yesterday (UTC now - 1)
+    if args.end_date:
+        end_date = datetime.strptime(args.end_date, '%Y-%m-%d').replace(tzinfo=timezone.utc)
+    else:
+        end_date = now_utc - timedelta(days=1)
+    
+    # Start date: default to end_date - 7 days
+    if args.start_date:
+        start_date = datetime.strptime(args.start_date, '%Y-%m-%d').replace(tzinfo=timezone.utc)
+    else:
+        start_date = end_date - timedelta(days=7)
+    
+    # Validate dates
+    if start_date > end_date:
+        print(f"❌ start_date ({start_date.strftime('%Y-%m-%d')}) cannot be after end_date ({end_date.strftime('%Y-%m-%d')})")
+        return False
+    
+    print(f"📅 Date range: {start_date.strftime('%Y-%m-%d')} → {end_date.strftime('%Y-%m-%d')}")
+    
+    # Run validation
+    result = asyncio.run(run_validation(
+        config=config,
+        start_date=start_date,
+        end_date=end_date,
+        no_slack=args.no_slack_message,
+        no_gcs=args.no_gcs_export
+    ))
+    
+    return result.get('success', False)
+
+
+def run_scheduled(config: Config, args):
+    """
+    Run validation on a schedule (continuous loop).
+    Checks scheduled times from config and runs validation when time matches.
+    """
+    import time as time_module
+    
+    scheduled_times = config.get_scheduled_times()
+    interval_hours = config.get_scheduling_interval_hours()
+    
+    print(f"\n🕐 Scheduled mode started")
+    print(f"📅 Running every {interval_hours} hours at: {', '.join(scheduled_times)}")
+    print(f"Press Ctrl+C to stop\n")
+    
+    last_run_time = None
+    
+    while True:
+        try:
+            now = datetime.now()
+            current_time = now.strftime('%H:%M')
+            
+            # Check if current time matches a scheduled time (within 1 minute window)
+            should_run = False
+            for scheduled_time in scheduled_times:
+                if current_time == scheduled_time:
+                    # Avoid running multiple times in the same minute
+                    run_key = f"{now.strftime('%Y-%m-%d')}_{scheduled_time}"
+                    if last_run_time != run_key:
+                        should_run = True
+                        last_run_time = run_key
+                    break
+            
+            if should_run:
+                print(f"\n{'='*70}")
+                print(f"⏰ Scheduled run at {now.strftime('%Y-%m-%d %H:%M:%S')}")
+                print(f"{'='*70}")
+                
+                try:
+                    # Reload config in case it changed
+                    config = Config()
+                    success = run_single_validation(config, args)
+                    
+                    if success:
+                        print(f"\n✅ Validation completed at {datetime.now().strftime('%H:%M:%S')}")
+                    else:
+                        print(f"\n❌ Validation failed at {datetime.now().strftime('%H:%M:%S')}")
+                        
+                except Exception as e:
+                    print(f"\n❌ Error during validation: {str(e)}")
+                    logger.exception("Scheduled validation error")
+                
+                print(f"\n💤 Waiting for next scheduled time...")
+            
+            # Sleep for 30 seconds before checking again
+            time_module.sleep(30)
+            
+        except KeyboardInterrupt:
+            print(f"\n\n🛑 Scheduled service stopped by user")
+            break
+        except Exception as e:
+            print(f"\n❌ Scheduler error: {str(e)}")
+            logger.exception("Scheduler error")
+            time_module.sleep(60)  # Wait a bit before retrying
 
 
 def main():
@@ -777,42 +885,19 @@ def main():
         print(f"❌ Failed to load configuration: {str(e)}")
         sys.exit(1)
     
-    # Calculate date range
-    now_utc = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    # Check for scheduled mode
+    if args.schedule:
+        run_scheduled(config, args)
+        sys.exit(0)
     
-    # End date: default to yesterday (UTC now - 1)
-    if args.end_date:
-        end_date = datetime.strptime(args.end_date, '%Y-%m-%d').replace(tzinfo=timezone.utc)
-    else:
-        end_date = now_utc - timedelta(days=1)
+    # Single run mode
+    success = run_single_validation(config, args)
     
-    # Start date: default to end_date - 7 days
-    if args.start_date:
-        start_date = datetime.strptime(args.start_date, '%Y-%m-%d').replace(tzinfo=timezone.utc)
-    else:
-        start_date = end_date - timedelta(days=7)
-    
-    # Validate dates
-    if start_date > end_date:
-        print(f"❌ start_date ({start_date.strftime('%Y-%m-%d')}) cannot be after end_date ({end_date.strftime('%Y-%m-%d')})")
-        sys.exit(1)
-    
-    print(f"📅 Date range: {start_date.strftime('%Y-%m-%d')} → {end_date.strftime('%Y-%m-%d')}")
-    
-    # Run validation
-    result = asyncio.run(run_validation(
-        config=config,
-        start_date=start_date,
-        end_date=end_date,
-        no_slack=args.no_slack_message,
-        no_gcs=args.no_gcs_export
-    ))
-    
-    if result.get('success'):
+    if success:
         print("✅ Done.")
         sys.exit(0)
     else:
-        print(f"❌ Failed: {result.get('error', 'Unknown error')}")
+        print("❌ Validation failed")
         sys.exit(1)
 
 
