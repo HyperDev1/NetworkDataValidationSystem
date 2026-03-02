@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-03-02T08:52:20.955Z"
+last_updated: "2026-03-02T09:20:00Z"
 progress:
-  total_phases: 2
+  total_phases: 4
   completed_phases: 1
-  total_plans: 2
-  completed_plans: 2
+  total_plans: 4
+  completed_plans: 3
 ---
 
 # Project State
@@ -18,16 +18,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-02)
 
 **Core value:** Ad network gelir verilerini AppLovin MAX ile otomatik karşılaştırarak discrepancy'leri tespit etmek
-**Current focus:** v1.0.1 Google Cloud Run — Phase 1: Containerization
+**Current focus:** v1.0.1 Google Cloud Run — Phase 2: Secret Management
 
 ## Current Position
 
-Phase: 1 of 4 (Containerization)
-Plan: 2 of N (01-02 complete)
-Status: Executing — Phase 1 Plan 02 complete
-Last activity: 2026-03-02 — Plan 01-02 executed (docker-compose.yml + container lifecycle verified)
+Phase: 2 of 4 (Secret Management)
+Plan: 1 of 2 (02-01 complete)
+Status: Executing — Phase 2 Plan 01 complete
+Last activity: 2026-03-02 — Plan 02-01 executed (Config env var override layer, docker-compose env_file, config.yaml.example annotations)
 
-Progress: [██░░░░░░░░] ~20%
+Progress: [███░░░░░░░] ~30%
 
 ## Performance Metrics
 
@@ -41,6 +41,7 @@ Progress: [██░░░░░░░░] ~20%
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 01-containerization | 2 | ~9 min | ~4.5 min |
+| 02-secret-management | 1 | ~2 min | ~2 min |
 
 **Recent Trend:**
 - Last 5 plans: 4 min
@@ -71,6 +72,12 @@ Recent decisions affecting current work:
 - restart: "no" in docker-compose — local testing tool, not a persistent daemon
 - Single validation service in compose — no extra networking complexity needed
 
+**02-01 decisions:**
+- _merge_env_vars() called in _load_config() so self.config is fully populated at construction: factory path fixed without touching any fetcher
+- Auto-enable network when any credential env var present — Cloud Run deployments need no explicit 'enabled' in YAML
+- Config.get() also checks env var directly (belt-and-suspenders for dot-notation callers)
+- docker-compose env_file required: false — .env absence does not break local dev
+
 ### Roadmap Evolution
 
 - Phase 4.1 inserted after Phase 4: Dynamic game configuration system for adding and removing games from validation reports (URGENT)
@@ -86,5 +93,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-02
-Stopped at: Completed 01-02-PLAN.md — docker-compose.yml created and container lifecycle verified (human checkpoint approved)
+Stopped at: Completed 02-01-PLAN.md — Config env var override layer implemented (src/config.py, docker-compose.yml, config.yaml.example)
 Resume file: None
