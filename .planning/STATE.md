@@ -10,27 +10,27 @@ See: .planning/PROJECT.md (updated 2026-03-02)
 ## Current Position
 
 Phase: 1 of 4 (Containerization)
-Plan: Not started
-Status: Ready to plan
-Last activity: 2026-03-02 — Roadmap created for v1.0.1 milestone
+Plan: 1 of N (01-01 complete)
+Status: Executing — Phase 1 Plan 01 complete
+Last activity: 2026-03-02 — Plan 01-01 executed (Flask server + Dockerfile)
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [█░░░░░░░░░] ~10%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 0
-- Average duration: —
-- Total execution time: —
+- Total plans completed: 1
+- Average duration: 4 min
+- Total execution time: 4 min
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| - | - | - | - |
+| 01-containerization | 1 | 4 min | 4 min |
 
 **Recent Trend:**
-- Last 5 plans: —
+- Last 5 plans: 4 min
 - Trend: —
 
 *Updated after each plan completion*
@@ -47,6 +47,12 @@ Recent decisions affecting current work:
 - GitHub Actions — repo already on GitHub, native integration
 - Cloud Logging only — Python logging auto-captured by Cloud Run, no extra monitoring
 
+**01-01 decisions:**
+- Flask dev server over Gunicorn — batch job, no concurrency, Cloud Run handles LB
+- asyncio.run() bridges async run_validation into sync Flask handler
+- Non-root appuser in container (security, CONT-02)
+- 2-stage Docker build with --prefix=/install for clean artifact separation
+
 ### Roadmap Evolution
 
 - Phase 4.1 inserted after Phase 4: Dynamic game configuration system for adding and removing games from validation reports (URGENT)
@@ -62,5 +68,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-02
-Stopped at: Roadmap created, all 13 requirements mapped to 4 phases
+Stopped at: Completed 01-01-PLAN.md — Flask HTTP server, Dockerfile, .dockerignore
 Resume file: None
