@@ -66,7 +66,12 @@ Plans:
   2. Application starts and runs validation when secrets are injected as environment variables
   3. Application falls back to config.yaml values when environment variables are absent (local dev still works)
   4. AdMob OAuth refresh token is stored in Secret Manager and read by the container at runtime
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [x] 02-01-PLAN.md — Config env var overrides and _merge_env_vars
+- [x] 02-02-PLAN.md — Secret Manager setup script and AdMob Cloud Run token support
+- [x] 02-03-PLAN.md — ADMOB_OAUTH_CREDENTIALS_PATH gap closure in setup-secrets.sh
 
 ### Phase 3: Scheduling
 **Goal**: Cloud Run executes the validation pipeline daily without any manual trigger
@@ -95,7 +100,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
 | 1. Containerization | v1.0.1 | 2/2 | Complete | 2026-03-02 |
-| 2. Secret Management | 2/2 | Complete   | 2026-03-02 | - |
+| 2. Secret Management | v1.0.1 | 3/3 | Complete | 2026-03-02 |
 | 3. Scheduling | v1.0.1 | 0/TBD | Not started | - |
 | 4. CI/CD | v1.0.1 | 0/TBD | Not started | - |
 

@@ -64,10 +64,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | CONT-02 | Phase 1 | Complete (01-01) |
 | CONT-03 | Phase 1 | Complete (01-01) |
 | CONT-04 | Phase 1 | Complete (01-02) |
-| SEC-01 | Phase 2 | Complete |
-| SEC-02 | Phase 2 | Complete |
-| SEC-03 | Phase 2 | Complete |
-| SEC-04 | Phase 2 | Complete |
+| SEC-01 | Phase 2 | Complete (02-01, 02-02) |
+| SEC-02 | Phase 2 | Complete (02-01, 02-02) |
+| SEC-03 | Phase 2 | Complete (02-01) |
+| SEC-04 | Phase 2 | Complete (02-02, 02-03) |
 | SCHED-01 | Phase 3 | Pending |
 | SCHED-02 | Phase 3 | Pending |
 | CICD-01 | Phase 4 | Pending |
