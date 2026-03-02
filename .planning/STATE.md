@@ -47,6 +47,10 @@ Recent decisions affecting current work:
 - GitHub Actions — repo already on GitHub, native integration
 - Cloud Logging only — Python logging auto-captured by Cloud Run, no extra monitoring
 
+### Roadmap Evolution
+
+- Phase 4.1 inserted after Phase 4: Dynamic game configuration system for adding and removing games from validation reports (URGENT)
+
 ### Pending Todos
 
 None yet.
