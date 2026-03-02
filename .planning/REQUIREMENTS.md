@@ -28,9 +28,9 @@ Requirements for Google Cloud Run deployment. Each maps to roadmap phases.
 
 ### CI/CD
 
-- [ ] **CICD-01**: GitHub Actions workflow, main branch'e push'ta Docker image build eder
-- [ ] **CICD-02**: Build edilen image Google Artifact Registry'ye push edilir
-- [ ] **CICD-03**: Push sonrası Cloud Run service otomatik olarak yeni image ile deploy edilir
+- [x] **CICD-01**: GitHub Actions workflow, main branch'e push'ta Docker image build eder
+- [x] **CICD-02**: Build edilen image Google Artifact Registry'ye push edilir
+- [x] **CICD-03**: Push sonrası Cloud Run service otomatik olarak yeni image ile deploy edilir
 
 ## Future Requirements
 
@@ -70,9 +70,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SEC-04 | Phase 2 | Complete (02-02, 02-03) |
 | SCHED-01 | Phase 3 | Complete |
 | SCHED-02 | Phase 3 | Complete (03-01) |
-| CICD-01 | Phase 4 | Pending |
-| CICD-02 | Phase 4 | Pending |
-| CICD-03 | Phase 4 | Pending |
+| CICD-01 | Phase 4 | Complete |
+| CICD-02 | Phase 4 | Complete |
+| CICD-03 | Phase 4 | Complete |
 
 **Coverage:**
 - v1.0.1 requirements: 13 total

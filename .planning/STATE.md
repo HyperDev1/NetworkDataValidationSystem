@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-03-02T11:53:56.441Z"
+last_updated: "2026-03-02T12:12:39.579Z"
 progress:
-  total_phases: 4
+  total_phases: 5
   completed_phases: 3
-  total_plans: 7
-  completed_plans: 7
+  total_plans: 10
+  completed_plans: 8
 ---
 
 # Project State
@@ -18,16 +18,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-02)
 
 **Core value:** Ad network gelir verilerini AppLovin MAX ile otomatik karşılaştırarak discrepancy'leri tespit etmek
-**Current focus:** v1.0.1 Google Cloud Run — Phase 3: Scheduling (complete)
+**Current focus:** v1.0.1 Google Cloud Run — Phase 4: CI/CD (in progress)
 
 ## Current Position
 
-Phase: 3 of 4 (Scheduling) — COMPLETE
-Plan: 2 of 2 (03-02 complete)
-Status: Phase 3 complete — Cloud Scheduler provisioning script created and human-verified
-Last activity: 2026-03-02 — Plan 03-02 executed (create setup-scheduler.sh for Cloud Scheduler + OIDC)
+Phase: 4 of 4 (CI/CD) — IN PROGRESS
+Plan: 1 of 3 (04-01 complete)
+Status: Phase 4 plan 1 complete — setup-cicd.sh GCP provisioning created
+Last activity: 2026-03-02 — Plan 04-01 executed (create setup-cicd.sh for Artifact Registry + Workload Identity)
 
-Progress: [████████░░] ~80%
+Progress: [████████░░] ~85%
 
 ## Performance Metrics
 
@@ -43,6 +43,7 @@ Progress: [████████░░] ~80%
 | 01-containerization | 2 | ~9 min | ~4.5 min |
 | 02-secret-management | 3 | ~5 min | ~1.7 min |
 | 03-scheduling | 2 | ~18 min | ~9 min |
+| 04-cicd | 1 (so far) | ~2 min | ~2 min |
 
 **Recent Trend:**
 - Last 5 plans: 4 min
@@ -100,6 +101,8 @@ Recent decisions affecting current work:
 - attempt-deadline=30m — allows full validation run to complete before Cloud Scheduler abandons the attempt
 - CLOUD_RUN_SERVICE_URL as required env var — avoids hardcoding project-specific URL, keeps script portable
 - Scheduler job uses check-before-update pattern so re-running always converges to desired state even if config drifted
+- [Phase 04-cicd]: Workload Identity Federation (keyless) for GitHub Actions auth — no JSON key stored, OIDC token exchange
+- [Phase 04-cicd]: principalSet WIF binding scoped to GitHub repo — allows all workflow tokens from the repo
 
 ### Roadmap Evolution
 
@@ -116,5 +119,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-02
-Stopped at: Completed 03-02-PLAN.md — setup-scheduler.sh Cloud Scheduler + OIDC provisioning (Phase 3 complete)
+Stopped at: Completed 04-01-PLAN.md — setup-cicd.sh GCP CI/CD provisioning (Artifact Registry + Workload Identity)
 Resume file: None
