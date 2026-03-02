@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-03-02T12:12:39.579Z"
+last_updated: "2026-03-02T12:14:51Z"
 progress:
   total_phases: 5
   completed_phases: 3
   total_plans: 10
-  completed_plans: 8
+  completed_plans: 9
 ---
 
 # Project State
@@ -23,11 +23,11 @@ See: .planning/PROJECT.md (updated 2026-03-02)
 ## Current Position
 
 Phase: 4 of 4 (CI/CD) — IN PROGRESS
-Plan: 1 of 3 (04-01 complete)
-Status: Phase 4 plan 1 complete — setup-cicd.sh GCP provisioning created
-Last activity: 2026-03-02 — Plan 04-01 executed (create setup-cicd.sh for Artifact Registry + Workload Identity)
+Plan: 2 of 3 (04-02 complete)
+Status: Phase 4 plan 2 complete — GitHub Actions CI/CD pipeline (deploy.yml) created
+Last activity: 2026-03-02 — Plan 04-02 executed (create .github/workflows/deploy.yml)
 
-Progress: [████████░░] ~85%
+Progress: [█████████░] ~90%
 
 ## Performance Metrics
 
@@ -43,7 +43,7 @@ Progress: [████████░░] ~85%
 | 01-containerization | 2 | ~9 min | ~4.5 min |
 | 02-secret-management | 3 | ~5 min | ~1.7 min |
 | 03-scheduling | 2 | ~18 min | ~9 min |
-| 04-cicd | 1 (so far) | ~2 min | ~2 min |
+| 04-cicd | 2 (so far) | ~3 min | ~1.5 min |
 
 **Recent Trend:**
 - Last 5 plans: 4 min
@@ -104,6 +104,12 @@ Recent decisions affecting current work:
 - [Phase 04-cicd]: Workload Identity Federation (keyless) for GitHub Actions auth — no JSON key stored, OIDC token exchange
 - [Phase 04-cicd]: principalSet WIF binding scoped to GitHub repo — allows all workflow tokens from the repo
 
+**04-02 decisions:**
+- build-and-push and deploy jobs gated with if: github.event_name == 'push' — PRs never trigger production push or deploy
+- build-check on PRs uses type=gha cache; main push uses type=local with mv anti-bloat pattern
+- deploy job re-authenticates with WIF independently — OIDC tokens are not transferable between different runner jobs
+- Dual image tagging: sha-{commit_sha} for rollback traceability + latest for production pointer
+
 ### Roadmap Evolution
 
 - Phase 4.1 inserted after Phase 4: Dynamic game configuration system for adding and removing games from validation reports (URGENT)
@@ -119,5 +125,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-02
-Stopped at: Completed 04-01-PLAN.md — setup-cicd.sh GCP CI/CD provisioning (Artifact Registry + Workload Identity)
+Stopped at: Completed 04-02-PLAN.md — GitHub Actions CI/CD pipeline deploy.yml (build+push+deploy on main, build-check on PR)
 Resume file: None
