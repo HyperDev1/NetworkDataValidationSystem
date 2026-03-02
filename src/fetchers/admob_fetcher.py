@@ -105,38 +105,53 @@ class AdmobFetcher(NetworkDataFetcher):
         return build('admob', 'v1', credentials=creds)
     
     def _authenticate_oauth(self) -> Optional[Credentials]:
-        """Authenticate using OAuth 2.0 (requires browser for initial auth)."""
+        """Authenticate using OAuth 2.0 — env var JSON string (Cloud Run) or file (local)."""
         creds = None
-        
-        # Check if we have a saved token
-        if os.path.exists(self.token_path):
+
+        # Cloud Run: ADMOB_TOKEN_JSON env var contains the OAuth token as a JSON string
+        admob_token_json = os.environ.get('ADMOB_TOKEN_JSON')
+        if admob_token_json:
+            try:
+                import json as _json
+                token_data = _json.loads(admob_token_json)
+                creds = Credentials.from_authorized_user_info(token_data, self.SCOPES)
+                logger.debug("Loaded AdMob OAuth token from ADMOB_TOKEN_JSON env var")
+            except Exception as e:
+                logger.warning(f"Failed to load token from ADMOB_TOKEN_JSON: {e}")
+                creds = None
+
+        # Local dev: load from file
+        if not creds and os.path.exists(self.token_path):
             try:
                 creds = Credentials.from_authorized_user_file(self.token_path, self.SCOPES)
                 logger.debug(f"Loaded existing OAuth token from {self.token_path}")
             except Exception as e:
                 logger.warning(f"Failed to load token: {e}")
                 creds = None
-        
-        # If no valid credentials, need to authenticate
+
+        # Refresh if expired (works for both cloud and local)
         if not creds or not creds.valid:
             if creds and creds.expired and creds.refresh_token:
                 try:
-                    logger.info("Refreshing expired OAuth token...")
+                    logger.info("Refreshing expired AdMob OAuth token...")
                     creds.refresh(Request())
                     logger.info("Token refreshed successfully")
                 except Exception as e:
                     logger.warning(f"Token refresh failed: {e}")
                     creds = None
-            
+
             if not creds:
-                # Need to do OAuth flow
-                if not os.path.exists(self.oauth_credentials_path):
-                    logger.warning(f"OAuth credentials file not found: {self.oauth_credentials_path}")
+                # Need to do OAuth flow — only works locally
+                if not self.oauth_credentials_path or not os.path.exists(self.oauth_credentials_path):
+                    logger.warning(
+                        f"AdMob OAuth credentials not available. "
+                        f"Set ADMOB_TOKEN_JSON env var (Cloud Run) or provide oauth_credentials_path (local)."
+                    )
                     return None
-                
+
                 logger.info("Starting OAuth authorization flow...")
                 logger.info("A browser window will open for authorization.")
-                
+
                 flow = InstalledAppFlow.from_client_secrets_file(
                     self.oauth_credentials_path,
                     self.SCOPES
@@ -154,21 +169,27 @@ class AdmobFetcher(NetworkDataFetcher):
                         raise
                 else:
                     raise RuntimeError("Could not find an available port for OAuth flow")
-        
-        # Save the credentials for next run
+
+        # Save refreshed credentials
         if creds:
             self._save_token(creds)
-        
+
         return creds
-    
+
     def _save_token(self, creds: Credentials):
-        """Save OAuth token to file for future use."""
+        """Save OAuth token. Skips file write in Cloud Run (token lives in env var / in-memory only)."""
+        # In Cloud Run, don't attempt to write token file — instance is ephemeral
+        # and the credentials directory is not writable
+        if os.environ.get('ADMOB_TOKEN_JSON'):
+            logger.debug("Cloud Run mode: skipping token file write (in-memory only)")
+            return
+
         try:
             # Ensure directory exists
             token_dir = os.path.dirname(self.token_path)
             if token_dir and not os.path.exists(token_dir):
                 os.makedirs(token_dir)
-            
+
             with open(self.token_path, 'w') as token_file:
                 token_file.write(creds.to_json())
             logger.debug(f"OAuth token saved to {self.token_path}")
