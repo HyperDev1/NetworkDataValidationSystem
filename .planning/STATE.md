@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-03-02T09:20:00Z"
+last_updated: "2026-03-02T09:30:00Z"
 progress:
   total_phases: 4
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 4
-  completed_plans: 3
+  completed_plans: 4
 ---
 
 # Project State
@@ -22,26 +22,26 @@ See: .planning/PROJECT.md (updated 2026-03-02)
 
 ## Current Position
 
-Phase: 2 of 4 (Secret Management)
-Plan: 1 of 2 (02-01 complete)
-Status: Executing — Phase 2 Plan 01 complete
-Last activity: 2026-03-02 — Plan 02-01 executed (Config env var override layer, docker-compose env_file, config.yaml.example annotations)
+Phase: 2 of 4 (Secret Management) — COMPLETE
+Plan: 2 of 2 (02-02 complete)
+Status: Phase 2 complete — ready for Phase 3
+Last activity: 2026-03-02 — Plan 02-02 executed (AdmobFetcher ADMOB_TOKEN_JSON env var support, setup-secrets.sh)
 
-Progress: [███░░░░░░░] ~30%
+Progress: [█████░░░░░] ~50%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 2
-- Average duration: 4-5 min
-- Total execution time: ~9 min
+- Total plans completed: 4
+- Average duration: ~3 min
+- Total execution time: ~11 min
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 01-containerization | 2 | ~9 min | ~4.5 min |
-| 02-secret-management | 1 | ~2 min | ~2 min |
+| 02-secret-management | 2 | ~4 min | ~2 min |
 
 **Recent Trend:**
 - Last 5 plans: 4 min
@@ -78,6 +78,12 @@ Recent decisions affecting current work:
 - Config.get() also checks env var directly (belt-and-suspenders for dot-notation callers)
 - docker-compose env_file required: false — .env absence does not break local dev
 
+**02-02 decisions:**
+- ADMOB_TOKEN_JSON env var check added before file-based check — Cloud Run path takes priority, local dev unchanged
+- from_authorized_user_info (dict) used for env var path, from_authorized_user_file (file) for local path
+- _save_token early-returns when ADMOB_TOKEN_JSON is set — Cloud Run instances are ephemeral, no file write needed
+- setup-secrets.sh skips secrets not in env rather than failing — idempotent, partial setup supported
+
 ### Roadmap Evolution
 
 - Phase 4.1 inserted after Phase 4: Dynamic game configuration system for adding and removing games from validation reports (URGENT)
@@ -93,5 +99,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-02
-Stopped at: Completed 02-01-PLAN.md — Config env var override layer implemented (src/config.py, docker-compose.yml, config.yaml.example)
+Stopped at: Completed 02-02-PLAN.md — AdmobFetcher ADMOB_TOKEN_JSON support + setup-secrets.sh (Phase 2 complete)
 Resume file: None

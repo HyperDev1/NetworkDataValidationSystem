@@ -36,7 +36,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Milestone Goal:** Pipeline runs fully in the cloud — containerized, secrets in GCP Secret Manager, triggered by Cloud Scheduler, deployed automatically via GitHub Actions.
 
 - [x] **Phase 1: Containerization** - Production-ready Docker image that builds and runs locally
-- [ ] **Phase 2: Secret Management** - All credentials moved to GCP Secret Manager, config reads from env
+- [x] **Phase 2: Secret Management** - All credentials moved to GCP Secret Manager, config reads from env (completed 2026-03-02)
 - [ ] **Phase 3: Scheduling** - Cloud Run triggered by Cloud Scheduler on daily schedule
 - [ ] **Phase 4: CI/CD** - GitHub Actions builds, pushes, and deploys on every main branch push
 
@@ -95,7 +95,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
 | 1. Containerization | v1.0.1 | 2/2 | Complete | 2026-03-02 |
-| 2. Secret Management | 1/2 | In Progress|  | - |
+| 2. Secret Management | 2/2 | Complete   | 2026-03-02 | - |
 | 3. Scheduling | v1.0.1 | 0/TBD | Not started | - |
 | 4. CI/CD | v1.0.1 | 0/TBD | Not started | - |
 
@@ -104,7 +104,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 **Goal:** [Urgent work - to be planned]
 **Requirements**: TBD
 **Depends on:** Phase 4
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 
 Plans:
 - [ ] TBD (run /gsd:plan-phase 04.1 to break down)

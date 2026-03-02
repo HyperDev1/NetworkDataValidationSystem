@@ -17,9 +17,9 @@ Requirements for Google Cloud Run deployment. Each maps to roadmap phases.
 ### Secret Management
 
 - [x] **SEC-01**: config.yaml'daki tüm API key/token/credential'lar GCP Secret Manager'a taşınır
-- [ ] **SEC-02**: Cloud Run, secret'ları environment variable olarak container'a inject eder
+- [x] **SEC-02**: Cloud Run, secret'ları environment variable olarak container'a inject eder
 - [x] **SEC-03**: config.py, önce environment variable'ları kontrol eder, yoksa config.yaml'a fallback yapar
-- [ ] **SEC-04**: AdMob OAuth refresh token Secret Manager'da saklanır ve Cloud Run tarafından okunur
+- [x] **SEC-04**: AdMob OAuth refresh token Secret Manager'da saklanır ve Cloud Run tarafından okunur
 
 ### Scheduling
 
@@ -65,9 +65,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | CONT-03 | Phase 1 | Complete (01-01) |
 | CONT-04 | Phase 1 | Complete (01-02) |
 | SEC-01 | Phase 2 | Complete |
-| SEC-02 | Phase 2 | Pending |
+| SEC-02 | Phase 2 | Complete |
 | SEC-03 | Phase 2 | Complete |
-| SEC-04 | Phase 2 | Pending |
+| SEC-04 | Phase 2 | Complete |
 | SCHED-01 | Phase 3 | Pending |
 | SCHED-02 | Phase 3 | Pending |
 | CICD-01 | Phase 4 | Pending |
