@@ -100,7 +100,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
 | 1. Containerization | v1.0.1 | 2/2 | Complete | 2026-03-02 |
-| 2. Secret Management | v1.0.1 | 3/3 | Complete | 2026-03-02 |
+| 2. Secret Management | v1.0.1 | Complete    | 2026-03-02 | 2026-03-02 |
 | 3. Scheduling | v1.0.1 | 0/TBD | Not started | - |
 | 4. CI/CD | v1.0.1 | 0/TBD | Not started | - |
 
@@ -109,7 +109,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 **Goal:** [Urgent work - to be planned]
 **Requirements**: TBD
 **Depends on:** Phase 4
-**Plans:** 2/2 plans complete
+**Plans:** 3/3 plans complete
 
 Plans:
 - [ ] TBD (run /gsd:plan-phase 04.1 to break down)
