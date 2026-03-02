@@ -3,7 +3,7 @@
 ## Milestones
 
 - ✅ **v1.0.0 Pre-GSD** - Phases 0 (shipped before GSD adoption)
-- 🚧 **v1.0.1 Google Cloud Run** - Phases 1-4 (in progress)
+- ✅ **v1.0.1 Google Cloud Run** - Phases 1-4 (completed 2026-03-02)
 
 ## Overview
 
@@ -31,7 +31,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 </details>
 
-### 🚧 v1.0.1 Google Cloud Run (In Progress)
+### ✅ v1.0.1 Google Cloud Run (COMPLETE — 2026-03-02)
 
 **Milestone Goal:** Pipeline runs fully in the cloud — containerized, secrets in GCP Secret Manager, triggered by Cloud Scheduler, deployed automatically via GitHub Actions.
 
@@ -97,9 +97,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 04-01-PLAN.md — scripts/setup-cicd.sh: Artifact Registry, Workload Identity, SA, IAM bindings
-- [ ] 04-02-PLAN.md — .github/workflows/deploy.yml: build+push+deploy on main, build-check on PR
-- [ ] 04-03-PLAN.md — GCP provisioning, GitHub secrets setup, end-to-end pipeline verification
+- [x] 04-01-PLAN.md — scripts/setup-cicd.sh: Artifact Registry, Workload Identity, SA, IAM bindings
+- [x] 04-02-PLAN.md — .github/workflows/deploy.yml: build+push+deploy on main, build-check on PR
+- [x] 04-03-PLAN.md — GCP provisioning, GitHub secrets setup, end-to-end pipeline verification
 
 ## Progress
 
@@ -111,7 +111,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | 1. Containerization | v1.0.1 | 2/2 | Complete | 2026-03-02 |
 | 2. Secret Management | v1.0.1 | Complete    | 2026-03-02 | 2026-03-02 |
 | 3. Scheduling | v1.0.1 | 2/2 | Complete | 2026-03-02 |
-| 4. CI/CD | 3/3 | Complete   | 2026-03-02 | - |
+| 4. CI/CD | v1.0.1 | 3/3 | Complete | 2026-03-02 |
 
 ### Phase 04.1: Dynamic game configuration system for adding and removing games from validation reports (INSERTED)
 
