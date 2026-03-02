@@ -52,8 +52,12 @@ def validate() -> tuple:
     and returns a JSON summary of results.
 
     Returns:
-        200: {"status": "completed", "networks_processed": N, "failed": [...]}
+        200: {"status": "completed", "networks_processed": N, "failed": []}
+             All networks succeeded.
+        500: {"status": "completed", "networks_processed": N, "failed": [...]}
+             One or more networks failed. Cloud Scheduler will retry.
         500: {"status": "error", "message": "..."}
+             Unhandled exception during validation.
     """
     try:
         logger.info("Validation triggered via HTTP POST /validate")
@@ -92,11 +96,21 @@ def validate() -> tuple:
             len(failed)
         )
 
-        return jsonify({
-            "status": "completed",
-            "networks_processed": networks_processed,
-            "failed": failed,
-        }), 200
+        if len(failed) == 0:
+            return jsonify({
+                "status": "completed",
+                "networks_processed": networks_processed,
+                "failed": failed,
+            }), 200
+        else:
+            # One or more networks failed — return 500 so Cloud Scheduler retries.
+            # Use status="completed" (not "error") to distinguish partial network
+            # failure from an unhandled system exception (which uses status="error").
+            return jsonify({
+                "status": "completed",
+                "networks_processed": networks_processed,
+                "failed": failed,
+            }), 500
 
     except Exception as e:
         logger.exception("Validation failed with exception: %s", str(e))
