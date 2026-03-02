@@ -1,0 +1,141 @@
+# GitHub Actions CI/CD Pipeline — Network Data Validation System
+#
+# TRIGGERS:
+#   - push to main  : build-and-push + deploy jobs run (full production deployment)
+#   - pull_request  : build-check job only (validates Dockerfile, no push, no deploy)
+#
+# REQUIRED GITHUB SECRETS:
+#   WIF_PROVIDER        — Workload Identity Federation provider resource name
+#                         (e.g. projects/123456789/locations/global/workloadIdentityPools/github-actions-pool/providers/github-provider)
+#   WIF_SERVICE_ACCOUNT — Service account email for WIF impersonation
+#                         (e.g. github-actions-sa@<project>.iam.gserviceaccount.com)
+#   GCP_PROJECT_ID      — GCP project ID (e.g. my-project-id)
+#
+# GCP PROVISIONING:
+#   Run scripts/setup-cicd.sh once to create the Artifact Registry repository,
+#   Workload Identity Pool/Provider, and required IAM bindings before the first push.
+
+name: Build and Deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  REGISTRY: us-central1-docker.pkg.dev
+  IMAGE: us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/network-data-validation/app
+
+jobs:
+
+  # ── Job 1: Build Docker image and push to Artifact Registry ─────────────────
+  # Runs only when a commit is pushed directly to the main branch.
+  build-and-push:
+    name: Build and Push to Artifact Registry
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write  # Required for Workload Identity Federation (OIDC token)
+
+    outputs:
+      image: ${{ env.IMAGE }}:sha-${{ github.sha }}
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud (Workload Identity Federation)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Cache Docker layers
+        uses: actions/cache@v4
+        with:
+          path: /tmp/.buildx-cache
+          key: docker-${{ runner.os }}-${{ hashFiles('requirements.txt', 'Pipfile.lock') }}
+          restore-keys: |
+            docker-${{ runner.os }}-
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:sha-${{ github.sha }}
+            ${{ env.IMAGE }}:latest
+          cache-from: type=local,src=/tmp/.buildx-cache
+          cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
+
+      - name: Move cache (prevent cache bloat)
+        run: mv /tmp/.buildx-cache-new /tmp/.buildx-cache
+
+  # ── Job 2: Deploy the newly pushed image to Cloud Run ───────────────────────
+  # Runs only after build-and-push succeeds (main push path only).
+  deploy:
+    name: Deploy to Cloud Run
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write  # Required for Workload Identity Federation (OIDC token)
+
+    steps:
+      - name: Authenticate to Google Cloud (Workload Identity Federation)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+
+      - name: Deploy to Cloud Run
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: network-data-validation
+          region: us-central1
+          image: ${{ env.IMAGE }}:sha-${{ github.sha }}
+          flags: --no-allow-unauthenticated
+
+  # ── Job 3: PR build check — validates Dockerfile without pushing ─────────────
+  # Runs only on pull_request events. Gives fast feedback before merge.
+  # No image is pushed; no Cloud Run deployment occurs.
+  build-check:
+    name: Build Check (PR only)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write  # Required for Workload Identity Federation (OIDC token)
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud (Workload Identity Federation)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image (no push)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
