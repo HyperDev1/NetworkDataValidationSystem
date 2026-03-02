@@ -80,7 +80,11 @@ Plans:
 **Success Criteria** (what must be TRUE):
   1. Cloud Scheduler fires an HTTP request to Cloud Run at the configured daily time
   2. Cloud Run receives the request, runs validation end-to-end, and returns an HTTP response indicating success or failure
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 03-01-PLAN.md — Fix /validate response codes (500 on partial network failure, TDD)
+- [ ] 03-02-PLAN.md — setup-scheduler.sh: service account, OIDC, Cloud Scheduler job provisioning
 
 ### Phase 4: CI/CD
 **Goal**: Pushing to main branch automatically builds, publishes, and deploys the latest image to Cloud Run
