@@ -94,7 +94,12 @@ Plans:
   1. A push to main triggers the GitHub Actions workflow and builds a new Docker image
   2. The built image is pushed to Google Artifact Registry with a new tag
   3. Cloud Run service is updated to the new image automatically after the push completes
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 04-01-PLAN.md — scripts/setup-cicd.sh: Artifact Registry, Workload Identity, SA, IAM bindings
+- [ ] 04-02-PLAN.md — .github/workflows/deploy.yml: build+push+deploy on main, build-check on PR
+- [ ] 04-03-PLAN.md — GCP provisioning, GitHub secrets setup, end-to-end pipeline verification
 
 ## Progress
 
