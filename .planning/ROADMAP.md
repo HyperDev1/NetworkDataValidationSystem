@@ -83,7 +83,7 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 03-01-PLAN.md — Fix /validate response codes (500 on partial network failure, TDD)
+- [x] 03-01-PLAN.md — Fix /validate response codes (500 on partial network failure, TDD)
 - [ ] 03-02-PLAN.md — setup-scheduler.sh: service account, OIDC, Cloud Scheduler job provisioning
 
 ### Phase 4: CI/CD
@@ -105,7 +105,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 |-------|-----------|----------------|--------|-----------|
 | 1. Containerization | v1.0.1 | 2/2 | Complete | 2026-03-02 |
 | 2. Secret Management | v1.0.1 | Complete    | 2026-03-02 | 2026-03-02 |
-| 3. Scheduling | v1.0.1 | 0/TBD | Not started | - |
+| 3. Scheduling | v1.0.1 | 1/2 | In progress | - |
 | 4. CI/CD | v1.0.1 | 0/TBD | Not started | - |
 
 ### Phase 04.1: Dynamic game configuration system for adding and removing games from validation reports (INSERTED)

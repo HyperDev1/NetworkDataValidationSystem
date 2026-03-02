@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-03-02T10:57:37.145Z"
+last_updated: "2026-03-02T11:27:00.000Z"
 progress:
   total_phases: 3
   completed_phases: 2
-  total_plans: 5
-  completed_plans: 5
+  total_plans: 7
+  completed_plans: 6
 ---
 
 # Project State
@@ -22,12 +22,12 @@ See: .planning/PROJECT.md (updated 2026-03-02)
 
 ## Current Position
 
-Phase: 2 of 4 (Secret Management) — COMPLETE
-Plan: 3 of 3 (02-03 complete)
-Status: Phase 2 fully complete (gap closure plan done) — ready for Phase 3
-Last activity: 2026-03-02 — Plan 02-03 executed (ADMOB_OAUTH_CREDENTIALS_PATH gap closure in setup-secrets.sh)
+Phase: 3 of 4 (Scheduling) — IN PROGRESS
+Plan: 1 of 2 (03-01 complete)
+Status: Plan 03-01 complete — /validate HTTP status codes fixed for Cloud Scheduler retry
+Last activity: 2026-03-02 — Plan 03-01 executed (fix /validate to return 500 on partial network failure)
 
-Progress: [█████░░░░░] ~50%
+Progress: [██████░░░░] ~60%
 
 ## Performance Metrics
 
@@ -42,6 +42,7 @@ Progress: [█████░░░░░] ~50%
 |-------|-------|-------|----------|
 | 01-containerization | 2 | ~9 min | ~4.5 min |
 | 02-secret-management | 3 | ~5 min | ~1.7 min |
+| 03-scheduling | 1 | ~8 min | ~8 min |
 
 **Recent Trend:**
 - Last 5 plans: 4 min
@@ -87,6 +88,11 @@ Recent decisions affecting current work:
 **02-03 decisions:**
 - "cloud-run" placeholder value for ADMOB_OAUTH_CREDENTIALS_PATH — satisfies factory.py required_key gate without real file path; _authenticate_oauth uses ADMOB_TOKEN_JSON instead
 
+**03-01 decisions:**
+- Return 500 with status="completed" for partial failure — distinguishes network-level failures from system crashes (which use status="error")
+- sys.modules pre-stubbing pattern for test isolation — main.py replaces sys.stdout at import (breaks pytest), stubbing avoids side-effects without modifying main.py
+- Minimal code change: only the return logic at end of try block modified
+
 ### Roadmap Evolution
 
 - Phase 4.1 inserted after Phase 4: Dynamic game configuration system for adding and removing games from validation reports (URGENT)
@@ -102,5 +108,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-02
-Stopped at: Completed 02-03-PLAN.md — ADMOB_OAUTH_CREDENTIALS_PATH gap closure (Phase 2 fully complete)
+Stopped at: Completed 03-01-PLAN.md — /validate partial failure response codes (Phase 3 Plan 1 complete)
 Resume file: None

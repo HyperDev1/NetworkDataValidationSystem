@@ -24,7 +24,7 @@ Requirements for Google Cloud Run deployment. Each maps to roadmap phases.
 ### Scheduling
 
 - [ ] **SCHED-01**: Cloud Scheduler günlük tek bir saatte Cloud Run service'i tetikler
-- [ ] **SCHED-02**: Cloud Run HTTP trigger ile validation çalıştırıp sonucu döner
+- [x] **SCHED-02**: Cloud Run HTTP trigger ile validation çalıştırıp sonucu döner
 
 ### CI/CD
 
@@ -69,7 +69,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SEC-03 | Phase 2 | Complete (02-01) |
 | SEC-04 | Phase 2 | Complete (02-02, 02-03) |
 | SCHED-01 | Phase 3 | Pending |
-| SCHED-02 | Phase 3 | Pending |
+| SCHED-02 | Phase 3 | Complete (03-01) |
 | CICD-01 | Phase 4 | Pending |
 | CICD-02 | Phase 4 | Pending |
 | CICD-03 | Phase 4 | Pending |
