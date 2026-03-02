@@ -133,6 +133,18 @@ gcloud iam service-accounts add-iam-policy-binding "$SA_EMAIL" \
   --role="roles/iam.serviceAccountTokenCreator" \
   --project="$PROJECT_ID"
 
+# Cloud Run deploy requires the deploying SA to be able to act as (impersonate) the
+# default Compute Engine service account that Cloud Run uses at runtime.
+# Without this binding, `gcloud run deploy` of a NEW service fails with:
+#   "Permission 'iam.serviceaccounts.actAs' denied on service account
+#    {project-number}-compute@developer.gserviceaccount.com"
+COMPUTE_SA="${GCP_PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
+echo "  Granting roles/iam.serviceAccountUser on Compute SA (Cloud Run deploy permission)..."
+gcloud iam service-accounts add-iam-policy-binding "$COMPUTE_SA" \
+  --member="serviceAccount:$SA_EMAIL" \
+  --role="roles/iam.serviceAccountUser" \
+  --project="$PROJECT_ID"
+
 # --- Workload Identity Pool ---
 
 echo ""
