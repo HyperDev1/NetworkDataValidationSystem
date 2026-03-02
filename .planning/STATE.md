@@ -10,24 +10,24 @@ See: .planning/PROJECT.md (updated 2026-03-02)
 ## Current Position
 
 Phase: 1 of 4 (Containerization)
-Plan: 1 of N (01-01 complete)
-Status: Executing — Phase 1 Plan 01 complete
-Last activity: 2026-03-02 — Plan 01-01 executed (Flask server + Dockerfile)
+Plan: 2 of N (01-02 complete)
+Status: Executing — Phase 1 Plan 02 complete
+Last activity: 2026-03-02 — Plan 01-02 executed (docker-compose.yml + container lifecycle verified)
 
-Progress: [█░░░░░░░░░] ~10%
+Progress: [██░░░░░░░░] ~20%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 1
-- Average duration: 4 min
-- Total execution time: 4 min
+- Total plans completed: 2
+- Average duration: 4-5 min
+- Total execution time: ~9 min
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 01-containerization | 1 | 4 min | 4 min |
+| 01-containerization | 2 | ~9 min | ~4.5 min |
 
 **Recent Trend:**
 - Last 5 plans: 4 min
@@ -53,6 +53,11 @@ Recent decisions affecting current work:
 - Non-root appuser in container (security, CONT-02)
 - 2-stage Docker build with --prefix=/install for clean artifact separation
 
+**01-02 decisions:**
+- Volume mounts for config.yaml and credentials/ as read-only — secrets never baked into the image
+- restart: "no" in docker-compose — local testing tool, not a persistent daemon
+- Single validation service in compose — no extra networking complexity needed
+
 ### Roadmap Evolution
 
 - Phase 4.1 inserted after Phase 4: Dynamic game configuration system for adding and removing games from validation reports (URGENT)
@@ -68,5 +73,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-02
-Stopped at: Completed 01-01-PLAN.md — Flask HTTP server, Dockerfile, .dockerignore
+Stopped at: Completed 01-02-PLAN.md — docker-compose.yml created and container lifecycle verified (human checkpoint approved)
 Resume file: None

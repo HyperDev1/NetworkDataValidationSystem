@@ -12,7 +12,7 @@ Requirements for Google Cloud Run deployment. Each maps to roadmap phases.
 - [x] **CONT-01**: Uygulama multi-stage Dockerfile ile production-ready container image olarak build edilebilir
 - [x] **CONT-02**: .dockerignore ile gereksiz dosyalar (credentials/, config.yaml, .git) image dışında kalır
 - [x] **CONT-03**: Cloud Run container health check'e HTTP endpoint üzerinden yanıt verir
-- [ ] **CONT-04**: Container lokal ortamda docker build + docker run ile test edilebilir
+- [x] **CONT-04**: Container lokal ortamda docker build + docker run ile test edilebilir
 
 ### Secret Management
 
@@ -63,7 +63,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | CONT-01 | Phase 1 | Complete (01-01) |
 | CONT-02 | Phase 1 | Complete (01-01) |
 | CONT-03 | Phase 1 | Complete (01-01) |
-| CONT-04 | Phase 1 | Pending |
+| CONT-04 | Phase 1 | Complete (01-02) |
 | SEC-01 | Phase 2 | Pending |
 | SEC-02 | Phase 2 | Pending |
 | SEC-03 | Phase 2 | Pending |

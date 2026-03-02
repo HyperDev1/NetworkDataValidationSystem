@@ -35,7 +35,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 **Milestone Goal:** Pipeline runs fully in the cloud — containerized, secrets in GCP Secret Manager, triggered by Cloud Scheduler, deployed automatically via GitHub Actions.
 
-- [ ] **Phase 1: Containerization** - Production-ready Docker image that builds and runs locally
+- [x] **Phase 1: Containerization** - Production-ready Docker image that builds and runs locally
 - [ ] **Phase 2: Secret Management** - All credentials moved to GCP Secret Manager, config reads from env
 - [ ] **Phase 3: Scheduling** - Cloud Run triggered by Cloud Scheduler on daily schedule
 - [ ] **Phase 4: CI/CD** - GitHub Actions builds, pushes, and deploys on every main branch push
@@ -55,7 +55,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 Plans:
 - [x] 01-01-PLAN.md — Flask HTTP server, multi-stage Dockerfile, .dockerignore
-- [ ] 01-02-PLAN.md — docker-compose.yml and local container verification
+- [x] 01-02-PLAN.md — docker-compose.yml and local container verification
 
 ### Phase 2: Secret Management
 **Goal**: All API credentials live in GCP Secret Manager and the application reads them without touching config.yaml at runtime
@@ -94,7 +94,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 1. Containerization | v1.0.1 | 1/2 | In Progress | - |
+| 1. Containerization | v1.0.1 | 2/2 | Complete | 2026-03-02 |
 | 2. Secret Management | v1.0.1 | 0/TBD | Not started | - |
 | 3. Scheduling | v1.0.1 | 0/TBD | Not started | - |
 | 4. CI/CD | v1.0.1 | 0/TBD | Not started | - |
