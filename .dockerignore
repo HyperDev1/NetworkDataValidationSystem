@@ -1,0 +1,40 @@
+# Version control
+.git
+.gitignore
+
+# Secrets and configuration (mounted at runtime, NOT baked into image)
+credentials/
+config.yaml
+.env
+
+# Python artifacts
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Development and planning
+.planning/
+scripts/
+docs/
+templates/
+*.md
+
+# IDE and OS
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Pipenv (using requirements.txt in container)
+Pipfile
+Pipfile.lock
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore
