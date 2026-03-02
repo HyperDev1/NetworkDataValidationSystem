@@ -51,7 +51,11 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. `docker run` starts the container and the application runs validation
   3. Container responds to HTTP health check endpoint (returns 200)
   4. Sensitive files (credentials/, config.yaml, .git) are absent from the built image
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 01-01-PLAN.md — Flask HTTP server, multi-stage Dockerfile, .dockerignore
+- [ ] 01-02-PLAN.md — docker-compose.yml and local container verification
 
 ### Phase 2: Secret Management
 **Goal**: All API credentials live in GCP Secret Manager and the application reads them without touching config.yaml at runtime
@@ -90,7 +94,17 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 1. Containerization | v1.0.1 | 0/TBD | Not started | - |
+| 1. Containerization | v1.0.1 | 0/2 | Planned | - |
 | 2. Secret Management | v1.0.1 | 0/TBD | Not started | - |
 | 3. Scheduling | v1.0.1 | 0/TBD | Not started | - |
 | 4. CI/CD | v1.0.1 | 0/TBD | Not started | - |
+
+### Phase 04.1: Dynamic game configuration system for adding and removing games from validation reports (INSERTED)
+
+**Goal:** [Urgent work - to be planned]
+**Requirements**: TBD
+**Depends on:** Phase 4
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd:plan-phase 04.1 to break down)
