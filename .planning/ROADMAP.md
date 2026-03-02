@@ -37,7 +37,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Containerization** - Production-ready Docker image that builds and runs locally
 - [x] **Phase 2: Secret Management** - All credentials moved to GCP Secret Manager, config reads from env (completed 2026-03-02)
-- [ ] **Phase 3: Scheduling** - Cloud Run triggered by Cloud Scheduler on daily schedule
+- [x] **Phase 3: Scheduling** - Cloud Run triggered by Cloud Scheduler on daily schedule (completed 2026-03-02)
 - [ ] **Phase 4: CI/CD** - GitHub Actions builds, pushes, and deploys on every main branch push
 
 ## Phase Details
@@ -84,7 +84,7 @@ Plans:
 
 Plans:
 - [x] 03-01-PLAN.md — Fix /validate response codes (500 on partial network failure, TDD)
-- [ ] 03-02-PLAN.md — setup-scheduler.sh: service account, OIDC, Cloud Scheduler job provisioning
+- [x] 03-02-PLAN.md — setup-scheduler.sh: service account, OIDC, Cloud Scheduler job provisioning
 
 ### Phase 4: CI/CD
 **Goal**: Pushing to main branch automatically builds, publishes, and deploys the latest image to Cloud Run
@@ -105,7 +105,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 |-------|-----------|----------------|--------|-----------|
 | 1. Containerization | v1.0.1 | 2/2 | Complete | 2026-03-02 |
 | 2. Secret Management | v1.0.1 | Complete    | 2026-03-02 | 2026-03-02 |
-| 3. Scheduling | v1.0.1 | 1/2 | In progress | - |
+| 3. Scheduling | v1.0.1 | 2/2 | Complete | 2026-03-02 |
 | 4. CI/CD | v1.0.1 | 0/TBD | Not started | - |
 
 ### Phase 04.1: Dynamic game configuration system for adding and removing games from validation reports (INSERTED)
