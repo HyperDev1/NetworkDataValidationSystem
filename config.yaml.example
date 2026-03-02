@@ -1,3 +1,16 @@
+# ============================================================
+# ENVIRONMENT VARIABLE OVERRIDES
+# ============================================================
+# Every credential field can be overridden by an environment variable.
+# Cloud Run: set secrets via --set-secrets (env vars injected at runtime).
+# Local dev: use config.yaml values directly OR create a .env file.
+#
+# Naming rule: remove 'networks.' prefix, replace dots with _, uppercase.
+#   networks.inmobi.secret_key  → INMOBI_SECRET_KEY
+#   slack.webhook_url           → SLACK_WEBHOOK_URL
+#   gcp.bucket_name             → GCP_BUCKET_NAME
+# ============================================================
+
 # Network Data Validation System Configuration
 
 # API Credentials
@@ -6,19 +19,19 @@ adjust:
   app_token: "YOUR_ADJUST_APP_TOKEN"
 
 applovin:
-  api_key: "YOUR_APPLOVIN_API_KEY"
-  package_name: "YOUR_PACKAGE_NAME"
+  api_key: "YOUR_APPLOVIN_API_KEY"  # ENV: APPLOVIN_API_KEY
+  package_name: "YOUR_PACKAGE_NAME"  # ENV: APPLOVIN_PACKAGE_NAME
 
 mintegral:
-  skey: "YOUR_MINTEGRAL_SKEY"
-  secret: "YOUR_MINTEGRAL_SECRET"
+  skey: "YOUR_MINTEGRAL_SKEY"  # ENV: MINTEGRAL_SKEY
+  secret: "YOUR_MINTEGRAL_SECRET"  # ENV: MINTEGRAL_SECRET
   app_id: ""  # Optional: Leave empty to get all apps
 
 # Unity Ads Configuration
 # Docs: https://docs.unity.com/en-us/grow/ads/optimization/monetization-stats-api
 unity_ads:
-  api_key: "YOUR_UNITY_ADS_API_KEY"  # Unity Ads Monetization Stats API Key
-  organization_id: "YOUR_ORGANIZATION_ID"  # Unity organization ID
+  api_key: "YOUR_UNITY_ADS_API_KEY"  # ENV: UNITY_ADS_API_KEY — Unity Ads Monetization Stats API Key
+  organization_id: "YOUR_ORGANIZATION_ID"  # ENV: UNITY_ADS_ORGANIZATION_ID — Unity organization ID
   game_ids: ""  # Optional: Comma-separated game IDs to filter
   use_mock: true  # Set to false to use real API data
 
@@ -27,23 +40,25 @@ unity_ads:
 admob:
   enabled: false
   service_account_json_path: "credentials/admob-service-account.json"  # Path to Google Service Account JSON key
-  publisher_id: "pub-XXXXXXXXXXXXXXXX"  # Your AdMob Publisher ID
+  publisher_id: "pub-XXXXXXXXXXXXXXXX"  # ENV: ADMOB_PUBLISHER_ID — Your AdMob Publisher ID
+  oauth_credentials_path: ""  # ENV: ADMOB_OAUTH_CREDENTIALS_PATH — Path to OAuth credentials JSON
+  token_json: ""  # ENV: ADMOB_TOKEN_JSON — JSON string of OAuth token (for Cloud Run)
   app_ids: ""  # Optional: Comma-separated AdMob app IDs to filter
 
 # Meta Audience Network Configuration
 # Docs: https://developers.facebook.com/docs/audience-network/optimization/report-api/guide-v2/
 meta:
   enabled: false
-  access_token: "YOUR_SYSTEM_USER_TOKEN"  # Meta System User Access Token from Business Manager
-  business_id: "YOUR_BUSINESS_ID"  # Meta Business ID from Business Manager
+  access_token: "YOUR_SYSTEM_USER_TOKEN"  # ENV: META_ACCESS_TOKEN — Meta System User Access Token from Business Manager
+  business_id: "YOUR_BUSINESS_ID"  # ENV: META_BUSINESS_ID — Meta Business ID from Business Manager
 
 # Moloco Publisher Configuration
 # Docs: https://help.publisher.moloco.com/hc/en-us/articles/26777697929111-Get-performance-data-using-the-Publisher-Summary-API
 moloco:
   enabled: false
-  email: "YOUR_EMAIL"  # Your Moloco Publisher login email
-  password: "YOUR_PASSWORD"  # Your Moloco Publisher password
-  platform_id: "YOUR_PLATFORM_ID"  # Your Moloco Platform ID (workplace_id)
+  email: "YOUR_EMAIL"  # ENV: MOLOCO_EMAIL — Your Moloco Publisher login email
+  password: "YOUR_PASSWORD"  # ENV: MOLOCO_PASSWORD — Your Moloco Publisher password
+  platform_id: "YOUR_PLATFORM_ID"  # ENV: MOLOCO_PLATFORM_ID — Your Moloco Platform ID (workplace_id)
   app_bundle_ids: ""  # Optional: comma-separated app bundle IDs to filter
   time_zone: "UTC"  # Timezone for data aggregation (default: UTC)
 
@@ -51,23 +66,23 @@ moloco:
 # Docs: https://docs.bidmachine.io/docs/reporting-api
 bidmachine:
   enabled: false
-  username: "YOUR_BIDMACHINE_USERNAME"  # BidMachine SSP account username
-  password: "YOUR_BIDMACHINE_PASSWORD"  # BidMachine SSP account password
+  username: "YOUR_BIDMACHINE_USERNAME"  # ENV: BIDMACHINE_USERNAME — BidMachine SSP account username
+  password: "YOUR_BIDMACHINE_PASSWORD"  # ENV: BIDMACHINE_PASSWORD — BidMachine SSP account password
   app_bundle_ids: ""  # Optional: comma-separated app bundle IDs to filter (e.g., "com.example.app,1234567890")
 
 # Liftoff (Vungle) Configuration
 # Docs: https://support.vungle.com/hc/en-us/articles/211365828-Publisher-Reporting-API-2-0
 liftoff:
   enabled: false
-  api_key: "YOUR_LIFTOFF_API_KEY"  # API Key from Liftoff Dashboard → Reports page
+  api_key: "YOUR_LIFTOFF_API_KEY"  # ENV: LIFTOFF_API_KEY — API Key from Liftoff Dashboard → Reports page
   application_ids: ""  # Optional: comma-separated Liftoff Application IDs to filter
 
 # DT Exchange (Digital Turbine) Configuration
 # Docs: https://developer.digitalturbine.com/hc/en-us/articles/8101286018717-DT-Exchange-Reporting-API
 dt_exchange:
   enabled: false
-  client_id: "YOUR_DT_EXCHANGE_CLIENT_ID"  # OAuth 2.0 Client ID
-  client_secret: "YOUR_DT_EXCHANGE_CLIENT_SECRET"  # OAuth 2.0 Client Secret
+  client_id: "YOUR_DT_EXCHANGE_CLIENT_ID"  # ENV: DT_EXCHANGE_CLIENT_ID — OAuth 2.0 Client ID
+  client_secret: "YOUR_DT_EXCHANGE_CLIENT_SECRET"  # ENV: DT_EXCHANGE_CLIENT_SECRET — OAuth 2.0 Client Secret
   source: "mediation"  # Report source: "mediation" for DT Exchange
   app_ids: ""  # Optional: comma-separated Fyber App IDs to filter
 
@@ -75,21 +90,28 @@ dt_exchange:
 # Docs: https://www.pangleglobal.com/integration/reporting-api-v2
 pangle:
   enabled: false
-  user_id: "YOUR_PANGLE_USER_ID"  # Pangle account ID
-  role_id: "YOUR_PANGLE_ROLE_ID"  # Role ID (found near security key in dashboard)
-  secure_key: "YOUR_PANGLE_SECURE_KEY"  # From Pangle platform → SDK Integration → Data API
+  user_id: "YOUR_PANGLE_USER_ID"  # ENV: PANGLE_USER_ID — Pangle account ID
+  role_id: "YOUR_PANGLE_ROLE_ID"  # ENV: PANGLE_ROLE_ID — Role ID (found near security key in dashboard)
+  secure_key: "YOUR_PANGLE_SECURE_KEY"  # ENV: PANGLE_SECURE_KEY — From Pangle platform → SDK Integration → Data API
   time_zone: 0  # 0 for UTC, 8 for UTC+8 (billing uses UTC+8)
   currency: "usd"  # "usd" or "cny" (lowercase)
   package_names: ""  # Optional: comma-separated package names to filter (e.g., "com.example.app,1234567890")
 
-# Add other networks as needed
-# ironsource:
-#   secret_key: "YOUR_SECRET_KEY"
-#   refresh_token: "YOUR_REFRESH_TOKEN"
+# IronSource Configuration
+networks:
+  ironsource:
+    username: "YOUR_IRONSOURCE_USERNAME"  # ENV: IRONSOURCE_USERNAME
+    secret_key: "YOUR_IRONSOURCE_SECRET_KEY"  # ENV: IRONSOURCE_SECRET_KEY
+
+  inmobi:
+    account_id: "YOUR_INMOBI_ACCOUNT_ID"  # ENV: INMOBI_ACCOUNT_ID
+    secret_key: "YOUR_INMOBI_SECRET_KEY"  # ENV: INMOBI_SECRET_KEY
+    username: ""  # ENV: INMOBI_USERNAME — Optional
+    app_ids: ""  # Optional: comma-separated InMobi app IDs to filter
 
 # Slack Configuration
 slack:
-  webhook_url: "YOUR_SLACK_WEBHOOK_URL"
+  webhook_url: "YOUR_SLACK_WEBHOOK_URL"  # ENV: SLACK_WEBHOOK_URL
   channel: "#revenue-alerts"
   # Revenue delta threshold for Slack notifications (absolute value in %)
   # Only app/ad_type rows with |rev_delta| > threshold will be shown
@@ -100,18 +122,24 @@ slack:
   # This prevents alerts on low-revenue placements with high percentage differences
   # Set to 0 to include all revenue levels
   min_revenue_for_alerts: 25.0
-  
+
+# GCP Configuration (for GCS/BigQuery export)
+gcp:
+  bucket_name: "YOUR_GCS_BUCKET_NAME"  # ENV: GCP_BUCKET_NAME
+  project_id: "YOUR_GCP_PROJECT_ID"  # ENV: GCP_PROJECT_ID
+  dataset_id: "YOUR_BIGQUERY_DATASET_ID"
+
 # Validation Settings
 validation:
   # Maximum allowed difference percentage (e.g., 5 means 5%)
   threshold_percentage: 5.0
-  
+
   # Metrics to compare
   metrics:
     - revenue
     - impressions
     - ecpm
-  
+
   # Date range for comparison (in days)
   date_range_days: 1
 
@@ -119,6 +147,6 @@ validation:
 scheduling:
   # Run interval in hours
   interval_hours: 6
-  
+
   # Enable/disable scheduling
   enabled: true
